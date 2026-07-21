@@ -1,0 +1,8 @@
+# 基础运行：零第三方依赖（仅 Python 标准库，Python 3.8+ 即可运行）
+# 启动： python server.py   （默认 http://localhost:8000）
+
+# 如需 MySQL 持久化存储（双写 + 历史回看），额外安装：
+PyMySQL>=1.1.0
+
+# 安装命令： pip install PyMySQL   （或按 README 用镜像源）
+# 不安装 PyMySQL 时，系统自动退化为仅用本地 JSON 缓存，看板照常工作。

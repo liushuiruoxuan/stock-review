@@ -1,0 +1,9 @@
+**/node_modules
+**/__pycache__
+**/*.pyc
+backend/cache
+.git
+.gitignore
+README.md
+# 前端 dist 由 Docker 多阶段构建生成，无需从宿主复制
+frontend/dist

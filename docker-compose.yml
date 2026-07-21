@@ -1,0 +1,32 @@
+# 股票每日复盘看板 - Docker 编排
+#
+# 方案：web 容器挂到服务器已有的 mysql_server 所在网络（mysql-compose_default），
+#       通过服务名 mysql_server 连接现有 MySQL，不另起 MySQL 实例、不碰现有数据。
+# 数据落在 mysql_server 已有的数据卷里（新建 stock_review 库）。
+#
+# 未创建 .env 时变量用下方 :-默认值；但本部署已提供 .env（含真实密码）。
+
+name: stock-review
+
+services:
+  web:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PORT=8000
+      - STOCK_DB_HOST=mysql_server
+      - STOCK_DB_PORT=3306
+      - STOCK_DB_USER=${STOCK_DB_USER:-root}
+      - STOCK_DB_PASSWORD=${STOCK_DB_PASSWORD:-changeme}
+      - STOCK_DB_NAME=${STOCK_DB_NAME:-stock_review}
+    networks:
+      - default
+      - mysql_compose_default
+    restart: unless-stopped
+
+networks:
+  # 复用服务器已有的 MySQL 容器网络，通过服务名 mysql_server 互通
+  mysql_compose_default:
+    external: true
+    name: mysql-compose_default

@@ -1,0 +1,34 @@
+# ===== Secrets / 凭据（切勿提交）=====
+.env
+.env.local
+*.env
+
+# ===== 部署 / 调试脚本（含服务器密码等敏感信息）=====
+.scratch/
+.scratch_*/
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# ===== Node / 前端构建产物 =====
+node_modules/
+frontend/dist/
+frontend/node_modules/
+dist/
+.cache/
+
+# ===== 运行时 / 日志 =====
+*.log
+.DS_Store
+
+# ===== 运行时数据缓存（首次抓取后自动生成，非源码）=====
+backend/cache/
+
+# ===== 工具 / 元数据 =====
+.workbuddy/
+.idea/
+.vscode/
