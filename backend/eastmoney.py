@@ -200,23 +200,24 @@ def resolve_trade_date():
 # 逐席位（营业部/机构/沪深股通）买卖明细，免费、免鉴权。
 # 买入席位：reportName=RPT_BILLBOARD_DAILYDETAILSBUY
 # 卖出席位：reportName=RPT_BILLBOARD_DAILYDETAILSSELL
-# filter=(TRADE_DATE='YYYY-MM-DD')(SECURITY_CODE="XXXXXX")
+# filter=(TRADE_DATE='YYYY-MM-DD')  按交易日批量返回全部个股席位（翻页）
 SEAT_BUY_REPORT = "RPT_BILLBOARD_DAILYDETAILSBUY"
 SEAT_SELL_REPORT = "RPT_BILLBOARD_DAILYDETAILSSELL"
-# East Money 按源 IP 限流（约 0.5 rps），请求间留足间隔，避免封禁。
-SEAT_REQ_INTERVAL = 0.4
+# East Money 按源 IP 限流，请求间留足间隔，避免封禁。
+# 席位明细接口对单个 TRADE_DATE 返回全部上榜个股的席位（top5 买卖），
+# 单页上限 500 行，需翻页；故每交易日仅需 BUY+SELL 各 2 页 ≈ 4 次请求。
+SEAT_REQ_INTERVAL = 0.3
+SEAT_PAGE_SIZE = 500
 
 
-def _fetch_seat_detail(trade_date, security_code, side):
-    """抓取单只票的单侧（BUY/SELL）席位明细，失败重试 2 次。"""
-    report = SEAT_BUY_REPORT if side == "BUY" else SEAT_SELL_REPORT
+def _fetch_seat_page(report, trade_date, page):
+    """抓取某交易日席位明细的单页（TRADE_DATE 维度，返回全部个股）。失败重试 2 次。"""
     p = {
         "reportName": report,
         "columns": "ALL",
-        "filter": "(TRADE_DATE='%s')(SECURITY_CODE=\"%s\")" % (trade_date, security_code),
-        "pageSize": "50", "pageNumber": "1",
-        "sortColumns": "BUY" if side == "BUY" else "SELL",
-        "sortTypes": "-1",
+        "filter": "(TRADE_DATE='%s')" % trade_date,
+        "pageSize": str(SEAT_PAGE_SIZE), "pageNumber": str(page),
+        "sortColumns": "SECURITY_CODE", "sortTypes": "1",
         "source": "WEB", "client": "WEB",
     }
     last_err = None
@@ -227,15 +228,33 @@ def _fetch_seat_detail(trade_date, security_code, side):
         except Exception as e:
             last_err = e
             time.sleep(0.6)
-    print("[eastmoney] 席位明细抓取失败 %s/%s/%s: %s" % (trade_date, security_code, side, last_err))
+    print("[eastmoney] 席位明细分页抓取失败 %s/%s p%s: %s" % (trade_date, report, page, last_err))
     return []
+
+
+def _norm_seat(r, side, name_map):
+    code = r.get("SECURITY_CODE") or (str(r.get("SECUCODE") or ""))[:6]
+    return {
+        "trade_date": (str(r.get("TRADE_DATE") or ""))[:10] or None,
+        "code": code,
+        "name": name_map.get(code) or r.get("SECURITY_NAME_ABBR") or None,
+        "seat_code": r.get("OPERATEDEPT_CODE"),
+        "seat_name": r.get("OPERATEDEPT_NAME"),
+        "side": side,
+        "buy_amt": r.get("BUY"),
+        "sell_amt": r.get("SELL"),
+        "net_amt": r.get("NET"),
+        "rise_prob_3d": r.get("RISE_PROBABILITY_3DAY"),
+        "trade_times_3d": r.get("TOTAL_BUYER_SALESTIMES_3DAY"),
+        "explanation": r.get("EXPLANATION"),
+        "trade_id": r.get("TRADE_ID"),
+    }
 
 
 def fetch_billboard_seats(trade_date, appearances=None):
     """抓取某交易日全部上榜个股的席位明细，合并为席位记录列表。
 
-    appearances: 可选，已归一化的龙虎榜列表（含 code/name）。
-                 不传则内部先抓当日 appearances。
+    采用 TRADE_DATE 维度批量抓取（BUY/SELL 各翻页至末页），远快于逐股请求。
     返回: [{
       trade_date, code, name, seat_code, seat_name, side(BUY/SELL),
       buy_amt, sell_amt, net_amt, rise_prob_3d, trade_times_3d,
@@ -247,28 +266,17 @@ def fetch_billboard_seats(trade_date, appearances=None):
         appearances = [normalize_billboard(r) for r in raw]
     name_map = {a.get("code"): a.get("name") for a in appearances if a.get("code")}
     seats = []
-    for a in appearances:
-        code = a.get("code")
-        if not code:
-            continue
-        name = a.get("name") or name_map.get(code)
-        for side in ("BUY", "SELL"):
-            rows = _fetch_seat_detail(trade_date, code, side)
+    for side, report in (("BUY", SEAT_BUY_REPORT), ("SELL", SEAT_SELL_REPORT)):
+        page = 1
+        while True:
+            rows = _fetch_seat_page(report, trade_date, page)
+            if not rows:
+                break
             for r in rows:
-                seats.append({
-                    "trade_date": (r.get("TRADE_DATE") or "")[:10] or trade_date,
-                    "code": r.get("SECURITY_CODE"),
-                    "name": name,
-                    "seat_code": r.get("OPERATEDEPT_CODE"),
-                    "seat_name": r.get("OPERATEDEPT_NAME"),
-                    "side": side,
-                    "buy_amt": r.get("BUY"),
-                    "sell_amt": r.get("SELL"),
-                    "net_amt": r.get("NET"),
-                    "rise_prob_3d": r.get("RISE_PROBABILITY_3DAY"),
-                    "trade_times_3d": r.get("TOTAL_BUYER_SALESTIMES_3DAY"),
-                    "explanation": r.get("EXPLANATION"),
-                    "trade_id": r.get("TRADE_ID"),
-                })
-            time.sleep(SEAT_REQ_INTERVAL)  # 限流
+                seats.append(_norm_seat(r, side, name_map))
+            if len(rows) < SEAT_PAGE_SIZE:
+                break  # 末页
+            page += 1
+            time.sleep(SEAT_REQ_INTERVAL)
+        time.sleep(SEAT_REQ_INTERVAL)
     return seats

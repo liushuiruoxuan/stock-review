@@ -2,14 +2,14 @@
 席位明细历史回填：对已有龙虎榜交易日逐日抓取席位明细并落库。
 在容器内执行： docker compose exec stock-review-web-1 python backfill_seats.py
 - 断点续传：已存在的交易日跳过。
-- 限流：复用 eastmoney.fetch_billboard_seats 内置 sleep(0.4)。
+- 限流：复用 eastmoney.fetch_billboard_seats 内置 sleep(0.3)。
 """
 import sys
 import time
 
 sys.path.insert(0, "/app/backend")
 import db
-import em
+import eastmoney as em
 
 
 def main():

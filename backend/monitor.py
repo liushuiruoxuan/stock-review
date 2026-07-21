@@ -196,6 +196,16 @@ def _fmt(v):
     return str(v)
 
 
+def _to_float(v):
+    """把接口返回的字符串/数字金额安全转成 float；失败返回 None。"""
+    if v is None or v == "":
+        return None
+    try:
+        return float(str(v).replace(",", "").replace("%", "").strip())
+    except (ValueError, TypeError):
+        return None
+
+
 def to_csv(by_date, list_times, date, min_net_wan=0, type_filter="all"):
     """按交易日导出监控报告 CSV（带 BOM 便于 Excel 打开）。"""
     rows = daily_ranking(by_date, list_times, date, min_net_wan, type_filter, limit=100000)

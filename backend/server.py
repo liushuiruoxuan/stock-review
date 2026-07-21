@@ -241,9 +241,17 @@ def scheduler_loop():
 
 
 # ----------------------- HTTP 服务 -----------------------
+def _json_default(o):
+    """json.dumps 兜底：date/datetime -> 字符串，其余 -> str。"""
+    import datetime as _dt
+    if isinstance(o, (_dt.date, _dt.datetime, _dt.time)):
+        return o.isoformat()
+    return str(o)
+
+
 class Handler(http.server.BaseHTTPRequestHandler):
     def _send_json(self, obj, status=200):
-        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        body = json.dumps(obj, ensure_ascii=False, default=_json_default).encode("utf-8")
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Access-Control-Allow-Origin", "*")

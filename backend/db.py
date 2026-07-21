@@ -310,7 +310,7 @@ def load_seats(trade_date, seat=None, side=None, seat_type=None, min_net=None, l
     if not conn:
         return None
     try:
-        sql = "SELECT trade_date, security_code, security_name, seat_code, seat_name, " \
+        sql = "SELECT trade_date, security_code AS code, security_name AS name, seat_code, seat_name, " \
               "side, buy_amt, sell_amt, net_amt, rise_prob_3d, trade_times_3d, " \
               "explanation, trade_id FROM %s WHERE trade_date=%%s" % SEAT_TABLE
         args = [trade_date]
