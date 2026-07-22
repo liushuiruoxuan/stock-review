@@ -80,6 +80,33 @@ CREATE TABLE IF NOT EXISTS %s (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
 """ % SEAT_TABLE
 
+# 涨停板（开盘红）：逐股涨停数据
+LIMITUP_TABLE = "stock_review_limitup"
+
+CREATE_LIMITUP_SQL = """
+CREATE TABLE IF NOT EXISTS %s (
+  id BIGINT AUTO_INCREMENT PRIMARY KEY,
+  trade_date DATE NOT NULL,
+  code VARCHAR(12),
+  name VARCHAR(40),
+  limit_count INT,
+  limit_tag VARCHAR(12),
+  reason VARCHAR(120),
+  themes VARCHAR(200),
+  industry_id VARCHAR(20),
+  industry_zt INT,
+  seal_amount BIGINT,
+  seal_money BIGINT,
+  net_inflow BIGINT,
+  turnover BIGINT,
+  turnover_rate FLOAT,
+  market_cap BIGINT,
+  limit_time BIGINT,
+  open_time BIGINT,
+  UNIQUE KEY uk_limitup (trade_date, code)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+""" % LIMITUP_TABLE
+
 
 def is_available():
     return (not _hard_disabled) and (not _soft_bad)
@@ -151,6 +178,7 @@ def init_db():
         with conn.cursor() as cur:
             cur.execute(CREATE_TABLE_SQL)
             cur.execute(CREATE_SEAT_SQL)
+            cur.execute(CREATE_LIMITUP_SQL)
         return True
     except Exception as e:
         print("[db] 建表失败：", e)
@@ -361,6 +389,91 @@ def list_seat_dates():
             return [str(r[0]) for r in cur.fetchall()]
     except Exception as e:
         print("[db] 列出席位交易日失败：", e)
+        return []
+    finally:
+        conn.close()
+
+
+# ------------------------- 涨停板 -------------------------
+def save_limit_up(rows):
+    """upsert 涨停列表到 MySQL。返回写入条数。"""
+    if not is_available() or not rows:
+        return 0
+    conn = get_conn()
+    if not conn:
+        return 0
+    sql = (
+        "INSERT INTO %s (trade_date, code, name, limit_count, limit_tag, reason, "
+        "themes, industry_id, industry_zt, seal_amount, seal_money, net_inflow, "
+        "turnover, turnover_rate, market_cap, limit_time, open_time) "
+        "VALUES (%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s,%%s) "
+        "ON DUPLICATE KEY UPDATE "
+        "name=VALUES(name), limit_count=VALUES(limit_count), limit_tag=VALUES(limit_tag), "
+        "reason=VALUES(reason), themes=VALUES(themes), industry_id=VALUES(industry_id), "
+        "industry_zt=VALUES(industry_zt), seal_amount=VALUES(seal_amount), "
+        "seal_money=VALUES(seal_money), net_inflow=VALUES(net_inflow), "
+        "turnover=VALUES(turnover), turnover_rate=VALUES(turnover_rate), "
+        "market_cap=VALUES(market_cap), limit_time=VALUES(limit_time), open_time=VALUES(open_time)"
+    ) % LIMITUP_TABLE
+    n = 0
+    try:
+        with conn.cursor() as cur:
+            for r in rows:
+                cur.execute(sql, (
+                    r.get("trade_date"), r.get("code"), r.get("name"),
+                    r.get("limit_count"), r.get("limit_tag"), r.get("reason"),
+                    r.get("themes"), r.get("industry_id"), r.get("industry_zt"),
+                    r.get("seal_amount"), r.get("seal_money"), r.get("net_inflow"),
+                    r.get("turnover"), r.get("turnover_rate"), r.get("market_cap"),
+                    r.get("limit_time"), r.get("open_time"),
+                ))
+                n += 1
+    except Exception as e:
+        print("[db] 写入涨停数据失败：", e)
+    finally:
+        conn.close()
+    return n
+
+
+def load_limit_up(trade_date):
+    """读取某交易日涨停列表（含 code/name 别名，便于前端与 monitor 使用）。"""
+    if not is_available():
+        return []
+    conn = get_conn()
+    if not conn:
+        return []
+    sql = (
+        "SELECT trade_date, code, name, limit_count, limit_tag, reason, themes, "
+        "industry_id, industry_zt, seal_amount, seal_money, net_inflow, turnover, "
+        "turnover_rate, market_cap, limit_time, open_time "
+        "FROM %s WHERE trade_date=%%s ORDER BY limit_count DESC, seal_money DESC"
+    ) % LIMITUP_TABLE
+    try:
+        with conn.cursor() as cur:
+            cur.execute(sql, (trade_date,))
+            cols = [d[0] for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
+    except Exception as e:
+        print("[db] 读取涨停数据失败：", e)
+        return []
+    finally:
+        conn.close()
+
+
+def list_limitup_dates():
+    """返回有涨停数据的交易日（倒序）。"""
+    if not is_available():
+        return []
+    conn = get_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT trade_date FROM %s ORDER BY trade_date DESC LIMIT 200" % LIMITUP_TABLE)
+            return [str(r[0]) for r in cur.fetchall()]
+    except Exception as e:
+        print("[db] 列涨停交易日失败：", e)
         return []
     finally:
         conn.close()

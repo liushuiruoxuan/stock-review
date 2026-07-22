@@ -111,6 +111,18 @@ def build_all(trade_date=None, force=False):
     else:
         sources["seats"] = "demo"
 
+    # 1.6) 涨停板（开盘红）：仅历史日期可抓（date < 今天）
+    try:
+        limit_up = em.fetch_limit_up(trade_date)
+    except Exception as e:
+        print("[build] 涨停抓取异常：", e)
+        limit_up = []
+    if limit_up:
+        db.save_limit_up(limit_up)
+        sources["limit_up"] = "live"
+    else:
+        sources["limit_up"] = "demo" if db.is_available() else "n/a"
+
     # 2) 个股池（资金流/涨幅/关注共用）
     raw = em.fetch_clist(em.STOCK_FS, "f62", 400, em.FIELD_STOCK)
     stocks = [em.norm_stock(r) for r in raw]
@@ -366,6 +378,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path.startswith("/api/seats/"):
             self.route_seats(path, qs, td)
             return
+        if path.startswith("/api/limitup/"):
+            self.route_limitup(path, qs, td)
+            return
         self._send_json({"error": "unknown api: %s" % path}, 404)
 
     # ----------------------- 资金监控（Tier A） -----------------------
@@ -536,6 +551,110 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
 
         self._send_json({"error": "unknown seats api: %s" % path}, 404)
+
+    # ----------------------- 涨停板（开盘红） -----------------------
+    def route_limitup(self, path, qs, td):
+        def q(name, default=None):
+            return qs.get(name, [default])[0]
+
+        dates = db.list_limitup_dates()
+        if not dates:
+            self._send_json({"error": "暂无涨停数据，请先刷新或回填历史",
+                             "available_dates": []}, 404)
+            return
+
+        if path == "/api/limitup/daily":
+            date = q("date") or dates[0]
+            if date not in dates:
+                date = dates[0]
+            rows = db.load_limit_up(date) or []
+
+            # 关联龙虎榜 + 席位（机构/游资）明细
+            bb = db.load_section(date, "billboard") or []
+            bb_map = {b.get("code"): b for b in bb if b.get("code")}
+            seats = db.load_seats(date) or []
+            seat_by_code = {}
+            for s in seats:
+                seat_by_code.setdefault(s.get("security_code"), []).append(s)
+
+            def _seat_type(name):
+                if name and ("机构专用" in name or "沪股通" in name or "深股通" in name):
+                    return "机构"
+                return "游资"
+
+            enriched = []
+            for r in rows:
+                code = r.get("code")
+                item = dict(r)
+                b = bb_map.get(code)
+                if b:
+                    item["billboard"] = {
+                        "net_amt": b.get("net_amt"),
+                        "inst_buy_cnt": b.get("inst_buy_cnt"),
+                        "inst_sell_cnt": b.get("inst_sell_cnt"),
+                        "explain": b.get("explain"),
+                        "reason": b.get("reason"),
+                    }
+                ss = seat_by_code.get(code)
+                if ss:
+                    seats_out = [{
+                        "seat_name": x.get("seat_name"),
+                        "side": x.get("side"),
+                        "net_amt": x.get("net_amt"),
+                        "buy_amt": x.get("buy_amt"),
+                        "sell_amt": x.get("sell_amt"),
+                        "type": _seat_type(x.get("seat_name")),
+                    } for x in ss[:14]]
+                    inst_net = sum((x.get("net_amt") or 0) for x in ss if _seat_type(x.get("seat_name")) == "机构")
+                    youzi_net = sum((x.get("net_amt") or 0) for x in ss if _seat_type(x.get("seat_name")) == "游资")
+                    item["seats"] = seats_out
+                    item["seat_summary"] = {"inst_net": inst_net, "youzi_net": youzi_net, "seat_cnt": len(ss)}
+                enriched.append(item)
+
+            # 统计
+            limit_dist = {}
+            seal_total = 0
+            net_total = 0
+            theme_cnt = {}
+            for r in rows:
+                tag = r.get("limit_tag") or ("%d连板" % (r.get("limit_count") or 1))
+                limit_dist[tag] = limit_dist.get(tag, 0) + 1
+                seal_total += (r.get("seal_money") or 0)
+                net_total += (r.get("net_inflow") or 0)
+                for t in (r.get("themes") or "").replace("、", ",").split(","):
+                    t = t.strip()
+                    if t:
+                        theme_cnt[t] = theme_cnt.get(t, 0) + 1
+            theme_top = sorted(theme_cnt.items(), key=lambda x: x[1], reverse=True)[:12]
+            stats = {
+                "count": len(rows),
+                "max_limit": max([(r.get("limit_count") or 1) for r in rows] or [0]),
+                "limit_dist": limit_dist,
+                "seal_total": seal_total,
+                "net_inflow_total": net_total,
+                "theme_top": [{"theme": k, "count": v} for k, v in theme_top],
+                "with_billboard": sum(1 for r in enriched if r.get("billboard")),
+            }
+            self._send_json({
+                "date": date,
+                "available_dates": list(reversed(dates)),
+                "count": len(enriched),
+                "stats": stats,
+                "ranking": enriched,
+            })
+            return
+
+        if path == "/api/limitup/news":
+            code = q("code", "")
+            name = q("name", "")
+            news = em.fetch_stock_news(code, name) if name else []
+            self._send_json({
+                "code": code, "name": name, "news": news,
+                "note": "近期公告按股票名称尽力匹配（免费源无按股新闻接口，仅供复盘参考）",
+            })
+            return
+
+        self._send_json({"error": "unknown limitup api: %s" % path}, 404)
 
     def serve_static(self, path):
         dist = os.path.abspath(DIST_DIR)

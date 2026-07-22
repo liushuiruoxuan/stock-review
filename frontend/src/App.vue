@@ -65,6 +65,7 @@ const refreshing = ref(false)
 
 const menus = [
   { path: '/', title: '总览', icon: 'DataLine' },
+  { path: '/limit-up', title: '涨停排行', icon: 'Top' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
   { path: '/capital-flow', title: '资金流向', icon: 'Money' },
   { path: '/sectors', title: '热点 / 流出板块', icon: 'PieChart' },

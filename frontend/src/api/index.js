@@ -33,6 +33,8 @@ export const api = {
   seatsProfile: (params = {}) => getJSON('/api/seats/profile?' + qs(params)),
   seatsSignals: (params = {}) => getJSON('/api/seats/signals?' + qs(params)),
   seatsExportUrl: (params = {}) => '/api/seats/export?' + qs(params),
+  limitupDaily: (params = {}) => getJSON('/api/limitup/daily?' + qs(params)),
+  limitupNews: (code, name) => getJSON('/api/limitup/news?' + qs({ code, name })),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => r.json())
 }
 

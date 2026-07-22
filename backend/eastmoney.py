@@ -280,3 +280,162 @@ def fetch_billboard_seats(trade_date, appearances=None):
             time.sleep(SEAT_REQ_INTERVAL)
         time.sleep(SEAT_REQ_INTERVAL)
     return seats
+
+
+# ------------------------- 涨停板（开盘红 kaipanhong） -------------------------
+# 免费、免鉴权的历史涨停池接口，返回逐股涨停数据，含连板数/涨停原因/题材/
+# 封单金额/净流入等，是“昨日涨停排行榜”的核心数据源。
+# 限制：仅支持历史日期（date < 今天），当日数据由 TCP 长连接推送无法获取。
+KPH_HOST = "https://apphis.kaipanhong.com/w1/api/index.php"
+KPH_BASE = {
+    "PhoneOSNew": "1",
+    "DeviceID": "1a609dd6-b2b8-3bf9-ac40-a77581551454",
+    "VerSion": "6.0.6",
+    "Token": "0",
+    "UserID": "0",
+    "Red": "1",
+    "apiv": "w45",
+}
+KPH_HEAD = {
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+    "User-Agent": "Dalvik/2.1.0 (Linux; U; Android 12; 2206123SC Build/c069a49.2)",
+    "Accept-Encoding": "gzip",
+}
+KPH_PAGE = 50
+
+
+def _kph_post(params, timeout=20):
+    data = urllib.parse.urlencode({**KPH_BASE, **params}).encode("utf-8")
+    req = urllib.request.Request(KPH_HOST, data=data, headers=KPH_HEAD, method="POST")
+    with urllib.request.urlopen(req, timeout=timeout, context=_ctx) as r:
+        raw = r.read()
+    if raw[:2] == b"\x1f\x8b":  # gzip
+        import gzip
+        raw = gzip.decompress(raw)
+    return json.loads(raw.decode("utf-8", "ignore"))
+
+
+def _parse_kph_row(row):
+    """解析开盘红涨停数据行（索引取自 levistock 源码）。"""
+    def g(i):
+        return row[i] if i < len(row) else None
+    return {
+        "code": g(0),
+        "name": g(1),
+        "limit_time": g(6),
+        "open_time": g(7),
+        "seal_amount": g(8),
+        "limit_tag": g(9),
+        "limit_count": g(10),
+        "themes": g(11),
+        "net_inflow": g(12),
+        "turnover": g(13),
+        "turnover_rate": g(14),
+        "market_cap": g(15),
+        "reason": g(16),
+        "seal_money": g(23),
+        "industry_id": g(26),
+        "industry_zt": g(27),
+    }
+
+
+def fetch_limit_up(trade_date, timeout=20):
+    """抓取某交易日涨停股票列表（开盘红历史涨停池）。
+
+    返回: [{trade_date, code, name, limit_count, limit_tag, reason, themes,
+            industry_id, industry_zt, seal_amount, seal_money, net_inflow,
+            turnover, turnover_rate, market_cap, limit_time, open_time}, ...]
+    若 trade_date >= 今天（开盘红不支持当日/未来），返回空列表。
+    """
+    try:
+        d = datetime.datetime.strptime(trade_date, "%Y-%m-%d").date()
+    except Exception:
+        return []
+    if d >= datetime.date.today():
+        return []
+    rows = []
+    index = 0
+    while True:
+        try:
+            j = _kph_post({
+                "a": "HisDaBanList", "c": "HisHomeDingPan",
+                "Order": "1", "st": str(KPH_PAGE), "Index": str(index),
+                "Is_st": "1", "PidType": "4", "Type": "6",
+                "FilterMotherboard": "0", "Filter": "0",
+                "FilterTIB": "0", "FilterGem": "0", "Day": trade_date,
+            }, timeout=timeout)
+        except Exception as e:
+            print("[eastmoney] 开盘红涨停抓取失败 %s: %s" % (trade_date, e))
+            break
+        if j.get("errcode") != "0":
+            print("[eastmoney] 开盘红返回异常 %s: errcode=%s" % (trade_date, j.get("errcode")))
+            break
+        batch = j.get("list") or []
+        for r in batch:
+            rec = _parse_kph_row(r)
+            rec["trade_date"] = trade_date
+            rows.append(rec)
+        if len(batch) < KPH_PAGE:
+            break
+        index += KPH_PAGE
+        time.sleep(0.3)
+    return rows
+
+
+# ------------------------- 个股近期公告（东方财富 np-anotice，best-effort） -------------------------
+# 说明：np-anotice 的按股过滤参数在沙箱环境不稳定，故拉取最新公告后在本地按
+# 股票名称做关键词匹配，作为“近期新闻/公告”的尽力而为来源。
+ANN_HOST = "https://np-anotice-stock.eastmoney.com/api/security/ann"
+_ANN_CACHE = {"ts": 0, "items": []}
+
+
+def _fetch_latest_announcements(limit=120):
+    now = time.time()
+    if now - _ANN_CACHE["ts"] < 600 and _ANN_CACHE["items"]:
+        return _ANN_CACHE["items"]
+    items = []
+    try:
+        for page in range(1, 4):  # 最多 3 页 ≈ 150 条
+            url = "%s?sr=-1&page_size=50&page_index=%d&client_source=web" % (ANN_HOST, page)
+            j = http_get_json(url, headers={"User-Agent": UA, "Referer": "https://data.eastmoney.com/"}, timeout=15)
+            lst = (j.get("data") or {}).get("list") or []
+            if not lst:
+                break
+            items.extend(lst)
+            if len(lst) < 50:
+                break
+            time.sleep(0.2)
+        _ANN_CACHE["ts"] = now
+        _ANN_CACHE["items"] = items
+    except Exception as e:
+        print("[eastmoney] 公告抓取失败: %s" % e)
+    return items
+
+
+def fetch_stock_news(code, name, limit=10):
+    """按股票名称尽力匹配近期公告，返回新闻/公告列表。
+
+    返回: [{title, time, art_code, types}]（types 为公告栏目名列表）。
+    若无可匹配项，返回空列表。
+    """
+    if not name:
+        return []
+    items = _fetch_latest_announcements()
+    kw = name.replace(" ", "")
+    out = []
+    for it in items:
+        title = (it.get("title") or "")
+        cols = it.get("columns") or []
+        col_names = [c.get("column_name", "") for c in cols if isinstance(c, dict)]
+        short_names = [(c.get("short_name", "") if isinstance(c, dict) else "") for c in (it.get("codes") or [])]
+        hit = (kw and kw in title) or name in col_names or name in short_names
+        if hit:
+            out.append({
+                "title": title,
+                "time": (it.get("display_time") or "")[:19],
+                "art_code": it.get("art_code"),
+                "types": [x for x in col_names if x],
+            })
+        if len(out) >= limit:
+            break
+    return out
