@@ -144,8 +144,14 @@ def build_all(trade_date=None, force=False):
 
     # 4) 衍生看板
     stocks_flow = _derive_stocks(stocks)
-    rapid_rise = sorted([s for s in stocks if s["change_pct"] is not None],
-                        key=lambda x: x["change_pct"], reverse=True)
+    # 极速拉升：优先使用新浪实时接口（push2 被封），失败则回退空列表不回退假数据
+    rapid_rise = em.fetch_rapid_rise_sina()
+    if not rapid_rise:
+        rapid_rise = sorted([s for s in stocks if s.get("change_pct") is not None],
+                            key=lambda x: x["change_pct"], reverse=True)
+        sources["rapid_rise"] = sources.get("rapid_rise", "demo")
+    else:
+        sources["rapid_rise"] = "live"
     capital_attention = sorted(
         [s for s in stocks if (s["main_net"] or 0) > 0 and (s["change_pct"] or 0) > 0],
         key=lambda x: x["main_net"], reverse=True)

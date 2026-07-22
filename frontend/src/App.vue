@@ -46,16 +46,8 @@
         </div>
         <div class="header-right">
           <span class="src-mini">
-            龙虎榜
+            数据
             <b :class="srcClass('billboard')">{{ srcText('billboard') }}</b>
-          </span>
-          <span class="src-mini">
-            个股
-            <b :class="srcClass('stocks')">{{ srcText('stocks') }}</b>
-          </span>
-          <span class="src-mini">
-            板块
-            <b :class="srcClass('sectors')">{{ srcText('sectors') }}</b>
           </span>
           <el-button size="small" :icon="Refresh" :loading="refreshing" @click="doRefresh">
             刷新数据
@@ -115,10 +107,7 @@ const menus = [
   { path: '/', title: '总览', icon: 'DataLine' },
   { path: '/limit-up', title: '涨停排行', icon: 'Top' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
-  { path: '/capital-flow', title: '资金流向', icon: 'Money' },
-  { path: '/sectors', title: '热点 / 流出板块', icon: 'PieChart' },
   { path: '/rapid-rise', title: '极速拉升', icon: 'Top' },
-  { path: '/capital-attention', title: '资金关注', icon: 'View' },
   { path: '/institution-youzi', title: '机构 / 游资', icon: 'User' },
   { path: '/monitor', title: '资金监控', icon: 'Bell' },
   { path: '/seats', title: '席位监控', icon: 'OfficeBuilding' }

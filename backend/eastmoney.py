@@ -282,6 +282,58 @@ def fetch_billboard_seats(trade_date, appearances=None):
     return seats
 
 
+# ------------------------- 极速拉升（新浪财经，替代被封的 push2） -------------------------
+SINA_MARKET_URL = "https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/Market_Center.getHQNodeData"
+SINA_HEADERS = {"User-Agent": UA, "Referer": "https://vip.stock.finance.sina.com.cn/"}
+
+
+def fetch_rapid_rise_sina(top_n=50, timeout=30):
+    """用新浪市场行情接口获取全市场涨幅排行（替代被封的 push2）。
+
+    新浪 VIP Market Center 接口返回沪深京全部 A 股的实时行情 JSON，
+    含现价/涨跌幅/成交量/成交额/换手率等基础字段。
+    按 changepercent 降序排序后取前 top_n 返回。
+
+    返回: [{code, name, price, change_pct, volume, turnover, turnover_rate}, ...]
+    若抓取失败返回空列表（不回退假数据）。
+    """
+    all_stocks = []
+    page = 1
+    while True:
+        params = {
+            "page": str(page), "num": "5000",
+            "sort": "symbol", "asc": "1", "node": "hs_a",
+            "symbol": "", "_s_r_a": "auto",
+        }
+        try:
+            data = http_get_json(SINA_MARKET_URL, params, headers=SINA_HEADERS, timeout=timeout)
+            if not data or not isinstance(data, list):
+                break
+            for item in data:
+                change_pct = _to_float(item.get("changepercent"))
+                if change_pct is None:
+                    continue
+                all_stocks.append({
+                    "code": item.get("code"),
+                    "name": item.get("name"),
+                    "price": _to_float(item.get("trade")),
+                    "change_pct": change_pct,
+                    "volume": item.get("volume"),                 # 成交量(股)
+                    "turnover": _to_float(item.get("amount")),   # 成交额(元)
+                    "turnover_rate": _to_float(item.get("turnoverratio")),
+                })
+            if len(data) < 5000:
+                break
+            page += 1
+            time.sleep(0.3)
+        except Exception as e:
+            print("[eastmoney] 新浪行情抓取失败: %s" % e)
+            break
+
+    all_stocks.sort(key=lambda x: x["change_pct"], reverse=True)
+    return all_stocks[:top_n]
+
+
 # ------------------------- 涨停板（开盘红 kaipanhong） -------------------------
 # 免费、免鉴权的历史涨停池接口，返回逐股涨停数据，含连板数/涨停原因/题材/
 # 封单金额/净流入等，是“昨日涨停排行榜”的核心数据源。

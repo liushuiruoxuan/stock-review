@@ -1,7 +1,7 @@
 <template>
   <div v-loading="loading">
-    <el-alert type="warning" :closable="false" show-icon class="tip">
-      <template #title>极速拉升 = 当日涨幅榜前列个股（结合主力净流入判断资金抢筹力度）</template>
+    <el-alert type="info" :closable="false" show-icon class="tip">
+      <template #title>全市场实时涨幅排行（数据：新浪财经，仅供参考）</template>
     </el-alert>
 
     <el-card shadow="never" class="card">
@@ -9,7 +9,6 @@
         <div class="card-h">
           涨幅榜 Top15
           <SourceTag section="rapid_rise" />
-          <el-switch v-model="onlyMain" active-text="仅看主力净流入为正" inline-prompt style="margin-left: auto;" />
         </div>
       </template>
       <BaseChart :option="option" height="360px" />
@@ -18,7 +17,7 @@
     <el-card shadow="never" class="card">
       <template #header><div class="card-h">极速拉升个股 <SourceTag section="rapid_rise" /></div></template>
       <div class="table-scroll">
-        <DataTable :rows="list" :columns="cols" :height="'540px'" />
+        <DataTable :rows="rows" :columns="cols" :height="'540px'" />
       </div>
     </el-card>
   </div>
@@ -38,34 +37,27 @@ const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const rows = ref([])
-const onlyMain = ref(false)
-
-const list = computed(() => {
-  let r = rows.value
-  if (onlyMain.value) r = r.filter((x) => (x.main_net || 0) > 0)
-  return r
-})
 
 const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'price', label: '现价', width: 80, align: 'right' },
   { prop: 'change_pct', label: '涨幅', width: 100, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
-  { prop: 'main_net', label: '主力净流入', width: 130, align: 'right', sortable: true, render: (r) => fmtYuan(r.main_net), cellClass: (r) => trendClass(r.main_net) },
-  { prop: 'main_net_pct', label: '主力净占%', width: 110, align: 'right', sortable: true, render: (r) => fmtPct(r.main_net_pct), cellClass: (r) => trendClass(r.main_net_pct) },
-  { prop: 'turnover', label: '换手%', width: 90, align: 'right', render: (r) => (r.turnover == null ? '--' : r.turnover.toFixed(2)) }
+  { prop: 'volume', label: '成交量(股)', width: 120, align: 'right', sortable: true, render: (r) => (r.volume != null ? r.volume.toLocaleString() : '--') },
+  { prop: 'turnover', label: '成交额', width: 120, align: 'right', sortable: true, render: (r) => fmtYuan(r.turnover) },
+  { prop: 'turnover_rate', label: '换手%', width: 90, align: 'right', render: (r) => (r.turnover_rate == null ? '--' : r.turnover_rate.toFixed(2)) }
 ]
 const COL_MOBILE = [
   { prop: 'name', label: '名称', minWidth: 80, fixed: 'left' },
   { prop: 'code', label: '代码', width: 72 },
   { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
-  { prop: 'main_net', label: '主力净流入', width: 110, align: 'right', sortable: true, render: (r) => fmtYuan(r.main_net), cellClass: (r) => trendClass(r.main_net) }
+  { prop: 'price', label: '现价', width: 64, align: 'right' },
+  { prop: 'turnover_rate', label: '换手%', width: 60, align: 'right', render: (r) => (r.turnover_rate == null ? '--' : r.turnover_rate.toFixed(2)) }
 ]
 const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 const option = computed(() => {
-  const t = list.value.slice(0, 15).reverse()
-  // 用涨幅画柱状（全为正），颜色统一红
+  const t = rows.value.slice(0, 15).reverse()
   return netBarOption(t.map((r) => r.name), t.map((r) => r.change_pct))
 })
 
