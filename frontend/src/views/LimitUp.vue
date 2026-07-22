@@ -62,64 +62,98 @@
         <span class="filter-count">共 {{ filtered.length }} 只</span>
       </div>
 
-      <el-table :data="paged" stripe border height="560" v-loading="loading" :default-sort="{ prop: 'limit_count', order: 'descending' }">
-        <el-table-column type="index" label="#" width="48" />
-        <el-table-column label="代码 / 名称" min-width="140">
-          <template #default="{ row }">
-            <div class="name-cell">
-              <span class="code">{{ row.code }}</span>
-              <span class="sname">{{ row.name }}</span>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="连板" width="84" prop="limit_count" sortable>
-          <template #default="{ row }">
-            <span class="limit-badge" :class="limitClass(row.limit_count)">{{ row.limit_tag || '首板' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="涨停原因" prop="reason" min-width="130" show-overflow-tooltip />
-        <el-table-column label="题材" prop="themes" min-width="160" show-overflow-tooltip>
-          <template #default="{ row }">
-            <span class="themes">{{ row.themes || '--' }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="封单金额" width="110" prop="seal_money" sortable align="right">
-          <template #default="{ row }"><span :class="yuanClass(row.seal_money)">{{ fmtYuan(row.seal_money) }}</span></template>
-        </el-table-column>
-        <el-table-column label="主力净流入" width="120" prop="net_inflow" sortable align="right">
-          <template #default="{ row }"><span :class="yuanClass(row.net_inflow)">{{ fmtYuan(row.net_inflow) }}</span></template>
-        </el-table-column>
-        <el-table-column label="流通市值" width="110" prop="market_cap" sortable align="right">
-          <template #default="{ row }">{{ fmtYuan(row.market_cap) }}</template>
-        </el-table-column>
-        <el-table-column label="换手率" width="86" prop="turnover_rate" sortable align="right">
-          <template #default="{ row }">{{ row.turnover_rate != null ? row.turnover_rate + '%' : '--' }}</template>
-        </el-table-column>
-        <el-table-column label="同行业涨停" width="92" prop="industry_zt" sortable align="center">
-          <template #default="{ row }">
-            <span v-if="row.industry_zt">{{ row.industry_zt }} 家</span><span v-else>--</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="龙虎榜" width="110" align="center">
-          <template #default="{ row }">
-            <el-tag v-if="row.billboard" type="warning" size="small" effect="dark">有</el-tag>
-            <el-tag v-else size="small" effect="plain" type="info">无</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="80" fixed="right">
-          <template #default="{ row }">
-            <el-button size="small" type="primary" link @click="openDetail(row)">详情</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <!-- 桌面表格 -->
+      <template v-if="!isMobile">
+        <div class="table-scroll">
+          <el-table :data="paged" stripe border height="560" v-loading="loading" :default-sort="{ prop: 'limit_count', order: 'descending' }">
+            <el-table-column type="index" label="#" width="48" />
+            <el-table-column label="代码 / 名称" min-width="140">
+              <template #default="{ row }">
+                <div class="name-cell">
+                  <span class="code">{{ row.code }}</span>
+                  <span class="sname">{{ row.name }}</span>
+                </div>
+              </template>
+            </el-table-column>
+            <el-table-column label="连板" width="84" prop="limit_count" sortable>
+              <template #default="{ row }">
+                <span class="limit-badge" :class="limitClass(row.limit_count)">{{ row.limit_tag || '首板' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="涨停原因" prop="reason" min-width="130" show-overflow-tooltip />
+            <el-table-column label="题材" prop="themes" min-width="160" show-overflow-tooltip>
+              <template #default="{ row }">
+                <span class="themes">{{ row.themes || '--' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="封单金额" width="110" prop="seal_money" sortable align="right">
+              <template #default="{ row }"><span :class="yuanClass(row.seal_money)">{{ fmtYuan(row.seal_money) }}</span></template>
+            </el-table-column>
+            <el-table-column label="主力净流入" width="120" prop="net_inflow" sortable align="right">
+              <template #default="{ row }"><span :class="yuanClass(row.net_inflow)">{{ fmtYuan(row.net_inflow) }}</span></template>
+            </el-table-column>
+            <el-table-column label="流通市值" width="110" prop="market_cap" sortable align="right">
+              <template #default="{ row }">{{ fmtYuan(row.market_cap) }}</template>
+            </el-table-column>
+            <el-table-column label="换手率" width="86" prop="turnover_rate" sortable align="right">
+              <template #default="{ row }">{{ row.turnover_rate != null ? row.turnover_rate + '%' : '--' }}</template>
+            </el-table-column>
+            <el-table-column label="同行业涨停" width="92" prop="industry_zt" sortable align="center">
+              <template #default="{ row }">
+                <span v-if="row.industry_zt">{{ row.industry_zt }} 家</span><span v-else>--</span>
+              </template>
+            </el-table-column>
+            <el-table-column label="龙虎榜" width="110" align="center">
+              <template #default="{ row }">
+                <el-tag v-if="row.billboard" type="warning" size="small" effect="dark">有</el-tag>
+                <el-tag v-else size="small" effect="plain" type="info">无</el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" width="80" fixed="right">
+              <template #default="{ row }">
+                <el-button size="small" type="primary" link @click="openDetail(row)">详情</el-button>
+              </template>
+            </el-table-column>
+          </el-table>
+        </div>
 
-      <el-pagination
-        class="pager"
-        layout="prev, pager, next"
-        :total="filtered.length"
-        :page-size="pageSize"
-        v-model:current-page="page"
-      />
+        <el-pagination
+          class="pager"
+          layout="prev, pager, next"
+          :total="filtered.length"
+          :page-size="pageSize"
+          v-model:current-page="page"
+        />
+      </template>
+
+      <!-- 移动端卡片视图 -->
+      <div v-else class="mobile-limit-cards">
+        <div v-for="r in paged" :key="r.code" class="mlc-item" @click="openDetail(r)">
+          <div class="mlc-head">
+            <span class="limit-badge" :class="limitClass(r.limit_count)">{{ r.limit_tag || '首板' }}</span>
+            <span class="mlc-name">{{ r.name }}</span>
+            <span class="mlc-code">{{ r.code }}</span>
+            <el-tag v-if="r.billboard" type="warning" size="small" effect="dark">龙虎榜</el-tag>
+          </div>
+          <div class="mlc-body">
+            <div class="mlc-row" v-if="r.reason">{{ r.reason }}</div>
+            <div class="mlc-row mlc-nums">
+              <span>流入 <b :class="yuanClass(r.net_inflow)">{{ fmtYuan(r.net_inflow) }}</b></span>
+              <span class="mlc-div">|</span>
+              <span>封单 <b>{{ fmtYuan(r.seal_money) }}</b></span>
+            </div>
+            <div class="mlc-row mlc-themes" v-if="r.themes">{{ r.themes }}</div>
+          </div>
+        </div>
+        <el-pagination
+          class="pager"
+          layout="prev, pager, next"
+          :total="filtered.length"
+          :page-size="pageSize"
+          v-model:current-page="page"
+          small
+        />
+      </div>
     </el-card>
 
     <el-drawer v-model="drawer" :title="cur.name + '（' + cur.code + '）'" size="46%" direction="rtl">
@@ -207,6 +241,9 @@ import { ref, computed, onMounted } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { api } from '../api'
 import { fmtYuan, yuanClass } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(false)
 const selDate = ref('')
@@ -329,4 +366,38 @@ onMounted(load)
 .news-note { color: #b0b4bc; font-size: 11px; margin-top: 8px; }
 .news-loading { color: #8a8f99; padding: 12px 0; }
 .up { color: #f5483b; }
+
+@media (max-width: 1100px) {
+  .stat-row { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .page-head { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .head-tools { align-self: stretch; }
+  .head-tools .el-select { flex: 1; }
+  .filter-bar { flex-direction: column; align-items: stretch; }
+  .filter-bar .el-input,
+  .filter-bar .el-select { width: 100% !important; }
+}
+
+/* 移动端卡片列表 */
+.mobile-limit-cards {
+  min-height: 200px;
+}
+.mlc-item {
+  background: #fff; border: 1px solid #ebeef5; border-radius: 10px;
+  padding: 12px 14px; margin-bottom: 8px; cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.mlc-item:active { box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+.mlc-head {
+  display: flex; align-items: center; gap: 8px;
+}
+.mlc-name { font-weight: 700; font-size: 15px; color: #1f2733; }
+.mlc-code { color: #8a8f99; font-size: 12px; }
+.mlc-body { margin-top: 6px; }
+.mlc-row { font-size: 12px; color: #5a5f6a; margin-bottom: 3px; }
+.mlc-nums b { font-weight: 700; }
+.mlc-div { color: #d0d3d8; margin: 0 4px; }
+.mlc-themes { color: #8a8f99; font-size: 11px; }
 </style>

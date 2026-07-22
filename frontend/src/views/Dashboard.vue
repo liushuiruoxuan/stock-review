@@ -20,7 +20,8 @@
       </el-card>
     </div>
 
-    <el-card shadow="never" class="card">
+    <!-- 桌面表格 -->
+    <el-card v-if="!isMobile" shadow="never" class="card">
       <template #header>
         <div class="card-h">
           龙虎榜净买入榜
@@ -30,6 +31,27 @@
       </template>
       <DataTable :rows="bbRows" :columns="bbCols" :height="'420px'" />
     </el-card>
+
+    <!-- 移动端卡片列表 -->
+    <div v-else class="mobile-cards">
+      <div class="mc-header">
+        <span class="mc-title">龙虎榜净买入榜</span>
+        <SourceTag section="billboard" />
+        <router-link to="/billboard" class="more">查看全部 ›</router-link>
+      </div>
+      <div v-for="r in bbRows" :key="r.code" class="mc-item">
+        <div class="mc-top">
+          <span class="mc-name">{{ r.name }}</span>
+          <span class="mc-code">{{ r.code }}</span>
+          <span class="mc-pct" :class="trendClass(r.change_pct)">{{ fmtPct(r.change_pct) }}</span>
+        </div>
+        <div class="mc-bottom">
+          <span>龙虎榜净买</span>
+          <span class="mc-net" :class="trendClass(r.net_amt)">{{ fmtYuan(r.net_amt) }}</span>
+          <span v-if="r.reason" class="mc-reason">{{ r.reason }}</span>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -42,6 +64,9 @@ import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { netBarOption } from '../utils/charts'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const summary = ref({})
@@ -49,14 +74,19 @@ const billboard = ref([])
 const sectorsHot = ref([])
 
 const bbRows = computed(() => (billboard.value || []).slice(0, 12))
-const bbCols = [
+const bbCols = computed(() => isMobile.value ? [
+  { prop: 'name', label: '名称', minWidth: 70, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 72 },
+  { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'net_amt', label: '净买', width: 100, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) }
+] : [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'change_pct', label: '涨幅', width: 90, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
   { prop: 'net_amt', label: '龙虎榜净买', width: 130, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) },
   { prop: 'reason', label: '上榜原因', minWidth: 200 },
   { prop: 'explain', label: '席位说明', minWidth: 160 }
-]
+])
 
 const bbOption = computed(() => {
   const top = (billboard.value || []).slice(0, 10).reverse()
@@ -89,4 +119,30 @@ onMounted(async () => {
   .stat-grid { grid-template-columns: repeat(3, 1fr); }
   .chart-grid { grid-template-columns: 1fr; }
 }
+@media (max-width: 768px) {
+  .stat-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+/* 移动端卡片 */
+.mobile-cards { margin-bottom: 12px; }
+.mc-header {
+  display: flex; align-items: center; gap: 10px;
+  font-weight: 600; color: #1f2733; font-size: 15px;
+  margin-bottom: 10px; padding: 0 2px;
+}
+.mc-title { flex-shrink: 0; }
+.mc-item {
+  background: #fff; border-radius: 10px; padding: 12px 14px;
+  margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.mc-top { display: flex; align-items: center; gap: 10px; }
+.mc-name { font-weight: 700; font-size: 15px; color: #1f2733; }
+.mc-code { color: #8a93a6; font-size: 12px; }
+.mc-pct { font-weight: 600; font-size: 15px; margin-left: auto; }
+.mc-bottom {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 6px; font-size: 12px; color: #6b7488;
+}
+.mc-net { font-weight: 700; font-size: 14px; }
+.mc-reason { color: #8a93a6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

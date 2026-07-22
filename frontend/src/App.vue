@@ -1,6 +1,8 @@
 <template>
-  <el-container class="app-root">
-    <el-aside width="212px" class="aside">
+  <el-container class="app-root" :class="{ 'is-mobile': isMobile }">
+
+    <!-- ====== 桌面侧边栏 ====== -->
+    <el-aside v-if="!isMobile" width="212px" class="aside">
       <div class="brand">
         <div class="brand-logo">盘</div>
         <div class="brand-text">
@@ -20,8 +22,50 @@
       </div>
     </el-aside>
 
-    <el-container>
-      <el-header class="header">
+    <!-- ====== 手机端顶栏 ====== -->
+    <div v-if="isMobile" class="mobile-topbar">
+      <el-button :icon="Menu" text class="topbar-menu-btn" @click="drawerVisible = true" />
+      <div class="topbar-center">
+        <span class="topbar-title">{{ currentTitle }}</span>
+        <el-tag v-if="ui.tradeDate" size="small" type="info" effect="plain" class="topbar-date">
+          {{ ui.tradeDate }}
+        </el-tag>
+      </div>
+      <el-button :icon="Refresh" text :loading="refreshing" class="topbar-refresh-btn" @click="doRefresh" />
+    </div>
+
+    <!-- ====== 手机端抽屉导航 ====== -->
+    <el-drawer
+      v-model="drawerVisible"
+      direction="ltr"
+      size="230px"
+      :with-header="false"
+      :close-on-press-escape="true"
+    >
+      <div class="drawer-brand">
+        <div class="brand-logo">盘</div>
+        <div class="brand-text">
+          <div class="brand-title">每日复盘</div>
+          <div class="brand-sub">股票资金看板</div>
+        </div>
+      </div>
+      <el-menu
+        :default-active="activePath"
+        router
+        class="drawer-menu"
+        @select="drawerVisible = false"
+      >
+        <el-menu-item v-for="r in menus" :key="r.path" :index="r.path">
+          <el-icon><component :is="r.icon" /></el-icon>
+          <span>{{ r.title }}</span>
+        </el-menu-item>
+      </el-menu>
+    </el-drawer>
+
+    <!-- ====== 内容区 ====== -->
+    <el-container class="body-wrap">
+      <!-- 桌面顶栏 -->
+      <el-header v-if="!isMobile" class="header">
         <div class="header-left">
           <span class="page-title">{{ currentTitle }}</span>
           <el-tag v-if="ui.tradeDate" size="small" type="info" effect="plain">
@@ -46,8 +90,10 @@
           </el-button>
         </div>
       </el-header>
+      <!-- 手机端简化顶栏（仅标题，刷新在顶部栏右边） -->
+      <div v-else class="header-mobile-placeholder" />
 
-      <el-main class="main">
+      <el-main class="main" :class="{ 'main-mobile': isMobile }">
         <router-view />
       </el-main>
     </el-container>
@@ -57,11 +103,14 @@
 <script setup>
 import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { Refresh } from '@element-plus/icons-vue'
+import { Refresh, Menu } from '@element-plus/icons-vue'
 import { ui, loadStatus, api } from './api'
+import { useResponsive } from './composables/useResponsive'
 
 const route = useRoute()
 const refreshing = ref(false)
+const drawerVisible = ref(false)
+const { isMobile } = useResponsive()
 
 const menus = [
   { path: '/', title: '总览', icon: 'DataLine' },
@@ -113,6 +162,8 @@ onMounted(() => {
 
 <style scoped>
 .app-root { height: 100vh; }
+
+/* ====== 桌面侧边栏 ====== */
 .aside {
   background: #0f1830;
   color: #cdd5e5;
@@ -144,6 +195,56 @@ onMounted(() => {
 .menu :deep(.el-menu-item:hover) { background: #16213c; color: #fff; }
 .aside-foot { padding: 14px 18px; font-size: 11px; color: #6b7488; line-height: 1.7; }
 
+/* ====== 手机端顶栏 ====== */
+.mobile-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: #fff;
+  border-bottom: 1px solid #eef0f4;
+  padding: 0 12px;
+  height: 48px;
+  flex-shrink: 0;
+}
+.topbar-menu-btn,
+.topbar-refresh-btn {
+  font-size: 20px; color: #1f2733;
+}
+.topbar-center {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+.topbar-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #1f2733;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.topbar-date { flex-shrink: 0; }
+
+/* ====== 手机端抽屉 ====== */
+.drawer-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px 16px;
+  border-bottom: 1px solid #ebeef5;
+  margin-bottom: 6px;
+}
+.drawer-menu { border-right: none; }
+.drawer-menu :deep(.el-menu-item) {
+  height: 44px; color: #1f2733; border-radius: 8px; margin: 2px 8px;
+}
+.drawer-menu :deep(.el-menu-item.is-active) {
+  background: #ecf5ff !important; color: #409eff; font-weight: 600;
+}
+.drawer-menu :deep(.el-menu-item:hover) { background: #f5f7fa; }
+
+/* ====== 桌面顶栏 ====== */
 .header {
   display: flex; align-items: center; justify-content: space-between;
   background: #fff; border-bottom: 1px solid #eef0f4; height: 60px;
@@ -155,5 +256,16 @@ onMounted(() => {
 .src-mini b { margin-left: 4px; font-weight: 600; }
 .t-live { color: #16a34a; }
 .t-demo { color: #d48806; }
+
+/* ====== 内容区 ====== */
+.body-wrap { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 .main { background: #f5f7fa; padding: 18px; overflow-y: auto; }
+.main-mobile { padding: 10px; }
+.header-mobile-placeholder { height: 0; flex-shrink: 0; }
+
+/* 移动端表格横向滚动容器 */
+.table-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
 </style>

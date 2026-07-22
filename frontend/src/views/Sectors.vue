@@ -10,7 +10,9 @@
         </el-card>
         <el-card shadow="never" class="card">
           <template #header><div class="card-h">热点板块明细 <SourceTag section="sectors_hot" /></div></template>
-          <DataTable :rows="hot" :columns="cols" :height="'500px'" />
+          <div class="table-scroll">
+            <DataTable :rows="hot" :columns="cols" :height="'500px'" />
+          </div>
         </el-card>
       </el-tab-pane>
 
@@ -23,7 +25,9 @@
         </el-card>
         <el-card shadow="never" class="card">
           <template #header><div class="card-h">资金流出板块明细 <SourceTag section="sectors_outflow" /></div></template>
-          <DataTable :rows="out" :columns="cols" :height="'500px'" />
+          <div class="table-scroll">
+            <DataTable :rows="out" :columns="cols" :height="'500px'" />
+          </div>
         </el-card>
       </el-tab-pane>
     </el-tabs>
@@ -38,19 +42,29 @@ import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { netBarOption } from '../utils/charts'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const tab = ref('hot')
 const hot = ref([])
 const out = ref([])
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '板块', minWidth: 110, fixed: 'left' },
   { prop: 'change_pct', label: '涨幅', width: 100, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
   { prop: 'main_net', label: '主力净流入', width: 140, align: 'right', sortable: true, render: (r) => fmtYuan(r.main_net), cellClass: (r) => trendClass(r.main_net) },
   { prop: 'main_net_pct', label: '主力净占%', width: 120, align: 'right', sortable: true, render: (r) => fmtPct(r.main_net_pct), cellClass: (r) => trendClass(r.main_net_pct) },
   { prop: 'leader_name', label: '领涨股', minWidth: 100, render: (r) => r.leader_name || '--' }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '板块', minWidth: 80, fixed: 'left' },
+  { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'main_net', label: '主力净流入', width: 110, align: 'right', sortable: true, render: (r) => fmtYuan(r.main_net), cellClass: (r) => trendClass(r.main_net) },
+  { prop: 'leader_name', label: '领涨股', minWidth: 80, render: (r) => r.leader_name || '--' }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 const hotOption = computed(() => {
   const t = hot.value.slice(0, 15).reverse()

@@ -12,13 +12,17 @@
         <template #header>
           <div class="card-h">机构净买入榜（{{ inst.buy.length }}）<SourceTag section="institution" /></div>
         </template>
-        <DataTable :rows="inst.buy" :columns="cols" :height="'460px'" />
+        <div class="table-scroll">
+          <DataTable :rows="inst.buy" :columns="cols" :height="'460px'" />
+        </div>
       </el-card>
       <el-card shadow="never" class="card">
         <template #header>
           <div class="card-h">机构净卖出榜（{{ inst.sell.length }}）<SourceTag section="institution" /></div>
         </template>
-        <DataTable :rows="inst.sell" :columns="cols" :height="'460px'" />
+        <div class="table-scroll">
+          <DataTable :rows="inst.sell" :columns="cols" :height="'460px'" />
+        </div>
       </el-card>
     </div>
 
@@ -26,24 +30,28 @@
       <template #header>
         <div class="card-h">游资 / 营业部活跃榜（{{ youzi.length }}）<SourceTag section="youzi" /></div>
       </template>
-      <DataTable :rows="youzi" :columns="youziCols" :height="'520px'" />
+      <div class="table-scroll">
+        <DataTable :rows="youzi" :columns="youziCols" :height="'520px'" />
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import BaseChart from '../components/BaseChart.vue'
+import { ref, computed, onMounted } from 'vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const inst = ref({ buy: [], sell: [] })
 const youzi = ref([])
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'change_pct', label: '涨幅', width: 90, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
@@ -52,8 +60,15 @@ const cols = [
   { prop: 'explain', label: '席位说明', minWidth: 160, render: (r) => r.explain || '--' },
   { prop: 'd1', label: '次日%', width: 90, align: 'right', sortable: true, render: (r) => (r.d1 == null ? '--' : fmtPct(r.d1)), cellClass: (r) => trendClass(r.d1) }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 70, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 70 },
+  { prop: 'change_pct', label: '涨幅', width: 68, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'net_amt', label: '净买', width: 100, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
-const youziCols = [
+const YZ_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'change_pct', label: '涨幅', width: 90, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
@@ -62,6 +77,13 @@ const youziCols = [
   { prop: 'reason', label: '上榜原因', minWidth: 180 },
   { prop: 'explain', label: '席位说明', minWidth: 160, render: (r) => r.explain || '--' }
 ]
+const YZ_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 70, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 70 },
+  { prop: 'change_pct', label: '涨幅', width: 68, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'net_amt', label: '净买', width: 100, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) }
+]
+const youziCols = computed(() => isMobile.value ? YZ_MOBILE : YZ_DESKTOP)
 
 onMounted(async () => {
   try {

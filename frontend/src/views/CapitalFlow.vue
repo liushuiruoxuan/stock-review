@@ -17,11 +17,15 @@
     <div class="two-col">
       <el-card shadow="never" class="card">
         <template #header><div class="card-h">主力净流入榜 <SourceTag section="stocks_flow" /></div></template>
-        <DataTable :rows="inflow" :columns="cols" :height="'520px'" />
+        <div class="table-scroll">
+          <DataTable :rows="inflow" :columns="cols" :height="'520px'" />
+        </div>
       </el-card>
       <el-card shadow="never" class="card">
         <template #header><div class="card-h">主力净流出榜 <SourceTag section="stocks_flow" /></div></template>
-        <DataTable :rows="outflow" :columns="cols" :height="'520px'" />
+        <div class="table-scroll">
+          <DataTable :rows="outflow" :columns="cols" :height="'520px'" />
+        </div>
       </el-card>
     </div>
   </div>
@@ -35,12 +39,15 @@ import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { netBarOption } from '../utils/charts'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const inflow = ref([])
 const outflow = ref([])
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'price', label: '现价', width: 80, align: 'right' },
@@ -52,6 +59,14 @@ const cols = [
   { prop: 'mid_net', label: '中单', width: 110, align: 'right', render: (r) => fmtYuan(r.mid_net), cellClass: (r) => trendClass(r.mid_net) },
   { prop: 'small_net', label: '小单', width: 110, align: 'right', render: (r) => fmtYuan(r.small_net), cellClass: (r) => trendClass(r.small_net) }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 80, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 72 },
+  { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'main_net', label: '主力净流入', width: 110, align: 'right', sortable: true, render: (r) => fmtYuan(r.main_net), cellClass: (r) => trendClass(r.main_net) },
+  { prop: 'main_net_pct', label: '占比%', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.main_net_pct), cellClass: (r) => trendClass(r.main_net_pct) }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 const option = computed(() => {
   const top = inflow.value.slice(0, 15).reverse()

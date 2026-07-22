@@ -18,7 +18,9 @@
           <el-input v-model="kw" placeholder="搜索名称/代码" size="small" clearable style="width: 180px; margin-left: auto;" />
         </div>
       </template>
-      <DataTable :rows="filtered" :columns="cols" :height="'560px'" />
+      <div class="table-scroll">
+        <DataTable :rows="filtered" :columns="cols" :height="'560px'" />
+      </div>
     </el-card>
   </div>
 </template>
@@ -31,6 +33,9 @@ import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { netBarOption } from '../utils/charts'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const rows = ref([])
@@ -42,7 +47,7 @@ const filtered = computed(() => {
   return rows.value.filter((r) => (r.name || '').includes(k) || (r.code || '').includes(k))
 })
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'close', label: '收盘', width: 80, align: 'right' },
@@ -55,6 +60,15 @@ const cols = [
   { prop: 'explain', label: '席位说明', minWidth: 160, render: (r) => r.explain || '--' },
   { prop: 'd1', label: '次日%', width: 90, align: 'right', sortable: true, render: (r) => (r.d1 == null ? '--' : fmtPct(r.d1)), cellClass: (r) => trendClass(r.d1) }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 80, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 72 },
+  { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) },
+  { prop: 'net_amt', label: '净买', width: 100, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) },
+  { prop: 'buy_amt', label: '买入', width: 100, align: 'right', render: (r) => fmtYuan(r.buy_amt) },
+  { prop: 'reason', label: '原因', minWidth: 120 }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 const option = computed(() => {
   const top = rows.value.slice(0, 15).reverse()

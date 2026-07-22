@@ -138,18 +138,23 @@
     <!-- 席位明细表 -->
     <el-card shadow="never" class="card">
       <template #header><div class="card-h">席位明细 · {{ selDate }} <SourceTag section="billboard" /></div></template>
-      <DataTable :rows="seats" :columns="cols" :height="'580px'" />
+      <div class="table-scroll">
+        <DataTable :rows="seats" :columns="cols" :height="'580px'" />
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Search, Download } from '@element-plus/icons-vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass, yuanClass } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const dates = ref([])
@@ -176,7 +181,7 @@ function seatTypeOf(name) {
 }
 const SEAT_TYPE_LABELS = { inst: '机构专用', hk: '沪深股通', youzi: '游资/营业部', other: '其他' }
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'seat_name', label: '席位', minWidth: 160, render: (r) => r.seat_name },
@@ -188,6 +193,15 @@ const cols = [
   { prop: 'rise_prob_3d', label: '3日胜率', width: 92, align: 'right', sortable: true, render: (r) => (r.rise_prob_3d == null ? '--' : r.rise_prob_3d.toFixed(1) + '%'), cellClass: (r) => (r.rise_prob_3d != null && r.rise_prob_3d >= 50 ? 'up' : 'down') },
   { prop: 'explanation', label: '上榜原因', minWidth: 160 }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 70, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 70 },
+  { prop: 'seat_name', label: '席位', minWidth: 120, render: (r) => r.seat_name },
+  { prop: 'type', label: '类型', width: 84, render: (r) => SEAT_TYPE_LABELS[seatTypeOf(r.seat_name)], cellClass: (r) => seatTypeOf(r.seat_name) === 'inst' ? 'up' : (seatTypeOf(r.seat_name) === 'hk' ? 'down' : '') },
+  { prop: 'side', label: '方向', width: 56, render: (r) => r.side === 'BUY' ? '买入' : '卖出', cellClass: (r) => r.side === 'BUY' ? 'up' : 'down' },
+  { prop: 'net_amt', label: '净额', width: 110, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 async function reload() {
   loading.value = true
@@ -280,5 +294,11 @@ onMounted(reload)
 @media (max-width: 1100px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .rank-grid { grid-template-columns: 1fr; }
+  .pf-grid { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 768px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
+  .pf-grid { grid-template-columns: repeat(2, 1fr); }
+  .profile-bar { flex-direction: column; align-items: stretch; }
 }
 </style>

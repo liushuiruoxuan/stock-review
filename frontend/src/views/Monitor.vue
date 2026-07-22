@@ -103,18 +103,23 @@
     <!-- 监控排行 -->
     <el-card shadow="never" class="card">
       <template #header><div class="card-h">监控排行 · {{ selDate }} <SourceTag section="billboard" /></div></template>
-      <DataTable :rows="ranking" :columns="cols" :height="'560px'" />
+      <div class="table-scroll">
+        <DataTable :rows="ranking" :columns="cols" :height="'560px'" />
+      </div>
     </el-card>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { Search, Download } from '@element-plus/icons-vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
 import { api } from '../api'
 import { fmtYuan, fmtPct, trendClass, yuanClass } from '../utils/format'
+import { useResponsive } from '../composables/useResponsive'
+
+const { isMobile } = useResponsive()
 
 const loading = ref(true)
 const dates = ref([])
@@ -133,7 +138,7 @@ const wrGroups = [
 const signals = ref([])
 const signalsMinStreak = ref(3)
 
-const cols = [
+const COL_DESKTOP = [
   { prop: 'name', label: '名称', minWidth: 90, fixed: 'left' },
   { prop: 'code', label: '代码', width: 90 },
   { prop: 'category', label: '类别', width: 96, render: (r) => catLabel(r.category), cellClass: (r) => catClass(r.category) },
@@ -148,6 +153,16 @@ const cols = [
   { prop: 'reason', label: '上榜原因', minWidth: 170 },
   { prop: 'explain', label: '席位说明', minWidth: 160, render: (r) => r.explain || '--' }
 ]
+const COL_MOBILE = [
+  { prop: 'name', label: '名称', minWidth: 70, fixed: 'left' },
+  { prop: 'code', label: '代码', width: 70 },
+  { prop: 'category', label: '类别', width: 80, render: (r) => catLabel(r.category), cellClass: (r) => catClass(r.category) },
+  { prop: 'net_amt', label: '净买', width: 100, align: 'right', sortable: true, render: (r) => fmtYuan(r.net_amt), cellClass: (r) => trendClass(r.net_amt) },
+  { prop: 'inst_buy_cnt', label: '买', width: 50, align: 'right', sortable: true },
+  { prop: 'inst_sell_cnt', label: '卖', width: 50, align: 'right', sortable: true },
+  { prop: 'change_pct', label: '涨幅', width: 72, align: 'right', sortable: true, render: (r) => fmtPct(r.change_pct), cellClass: (r) => trendClass(r.change_pct) }
+]
+const cols = computed(() => isMobile.value ? COL_MOBILE : COL_DESKTOP)
 
 const CAT_LABELS = { inst_buy: '机构买入', inst_sell: '机构卖出', inst_split: '机构分歧', youzi: '游资' }
 function catLabel(c) { return CAT_LABELS[c] || c }
@@ -216,5 +231,8 @@ onMounted(reload)
 @media (max-width: 1100px) {
   .stat-row { grid-template-columns: repeat(3, 1fr); }
   .wr-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 768px) {
+  .stat-row { grid-template-columns: repeat(2, 1fr); }
 }
 </style>
