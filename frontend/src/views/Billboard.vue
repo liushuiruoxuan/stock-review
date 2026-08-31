@@ -26,11 +26,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import BaseChart from '../components/BaseChart.vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
-import { api } from '../api'
+import { api, ui } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { netBarOption } from '../utils/charts'
 import { useResponsive } from '../composables/useResponsive'
@@ -75,13 +75,18 @@ const option = computed(() => {
   return netBarOption(top.map((r) => r.name), top.map((r) => r.net_amt))
 })
 
-onMounted(async () => {
+async function loadAll() {
+  loading.value = true
   try {
     rows.value = (await api.billboard()) || []
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadAll)
+// 历史回看日期切换时自动重新加载
+watch(() => ui.selectedDate, loadAll)
 </script>
 
 <style scoped>

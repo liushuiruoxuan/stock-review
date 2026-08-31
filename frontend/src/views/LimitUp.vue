@@ -8,7 +8,7 @@
         </p>
       </div>
       <div class="head-tools">
-        <el-select v-model="selDate" placeholder="交易日" style="width: 160px" @change="load">
+        <el-select v-model="selDate" placeholder="交易日" style="width: 160px" @change="onLocalDate">
           <el-option v-for="d in availableDates" :key="d" :label="d" :value="d" />
         </el-select>
         <el-button :icon="Refresh" :loading="loading" @click="load">刷新</el-button>
@@ -237,9 +237,9 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
-import { api } from '../api'
+import { api, ui } from '../api'
 import { fmtYuan, yuanClass } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 
@@ -326,7 +326,22 @@ async function openDetail(row) {
   }
 }
 
-onMounted(load)
+function onLocalDate() {
+  // 内部日期选择器变更时同步到全局，触发 watch 内统一 reload
+  ui.selectedDate = selDate.value
+}
+
+function init() {
+  selDate.value = ui.selectedDate || ''
+  load()
+}
+
+onMounted(init)
+// 全局日期切换器变更时，同步内部选择并重新加载
+watch(() => ui.selectedDate, () => {
+  selDate.value = ui.selectedDate || ''
+  load()
+})
 </script>
 
 <style scoped>

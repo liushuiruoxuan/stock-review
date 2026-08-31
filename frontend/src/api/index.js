@@ -15,17 +15,23 @@ function qs(params) {
   return p.toString()
 }
 
+// 历史回看日期线程：selectedDate 为空(undefined/null/空串)时取最新交易日
+function dq() {
+  const d = ui.selectedDate
+  return d ? `&date=${encodeURIComponent(d)}` : ''
+}
+
 export const api = {
   status: () => getJSON('/api/status'),
-  summary: () => getJSON('/api/summary'),
-  billboard: () => getJSON('/api/billboard'),
-  stocksFlow: (limit = 50) => getJSON(`/api/stocks/flow?limit=${limit}`),
-  rapidRise: (limit = 50) => getJSON(`/api/rapid-rise?limit=${limit}`),
-  capitalAttention: (limit = 50) => getJSON(`/api/capital-attention?limit=${limit}`),
-  sectorsHot: (limit = 30) => getJSON(`/api/sectors/hot?limit=${limit}`),
-  sectorsOutflow: (limit = 30) => getJSON(`/api/sectors/outflow?limit=${limit}`),
-  institution: () => getJSON('/api/institution'),
-  youzi: (limit = 50) => getJSON(`/api/youzi?limit=${limit}`),
+  summary: () => getJSON('/api/summary' + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  billboard: () => getJSON('/api/billboard' + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  stocksFlow: (limit = 50) => getJSON(`/api/stocks/flow?limit=${limit}${dq()}`),
+  rapidRise: (limit = 50) => getJSON(`/api/rapid-rise?limit=${limit}${dq()}`),
+  capitalAttention: (limit = 50) => getJSON(`/api/capital-attention?limit=${limit}${dq()}`),
+  sectorsHot: (limit = 30) => getJSON(`/api/sectors/hot?limit=${limit}${dq()}`),
+  sectorsOutflow: (limit = 30) => getJSON(`/api/sectors/outflow?limit=${limit}${dq()}`),
+  institution: () => getJSON('/api/institution' + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  youzi: (limit = 50) => getJSON(`/api/youzi?limit=${limit}${dq()}`),
   monitorDaily: (params = {}) => getJSON('/api/monitor/daily?' + qs(params)),
   monitorSignals: (params = {}) => getJSON('/api/monitor/signals?' + qs(params)),
   monitorExportUrl: (params = {}) => '/api/monitor/export?' + qs(params),
@@ -35,16 +41,30 @@ export const api = {
   seatsExportUrl: (params = {}) => '/api/seats/export?' + qs(params),
   limitupDaily: (params = {}) => getJSON('/api/limitup/daily?' + qs(params)),
   limitupNews: (code, name) => getJSON('/api/limitup/news?' + qs({ code, name })),
+  hotBillboard: (limit = 200) => getJSON(`/api/hot-billboard?limit=${limit}${dq()}`),
+  historyDates: () => getJSON('/api/history/dates'),
   refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => r.json())
 }
 
-// 全局 UI 状态：数据源(live/demo)、交易日等
+// 全局 UI 状态：数据源(live/demo)、交易日、历史回看日期等
 export const ui = reactive({
   sources: {},
-  tradeDate: '',
+  tradeDate: '',        // 最新已构建交易日
   serverTime: '',
-  loaded: false
+  loaded: false,
+  selectedDate: '',      // 用户选择的历史回看日期；'' / null = 最新
+  availableDates: []    // 可回看的历史交易日列表（来自 /api/history/dates）
 })
+
+export async function loadDates() {
+  try {
+    const r = await api.historyDates()
+    ui.availableDates = (r && r.dates) || []
+  } catch (e) {
+    ui.availableDates = []
+  }
+  return ui.availableDates
+}
 
 const SECTION_SOURCE = {
   billboard: 'billboard',

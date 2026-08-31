@@ -43,6 +43,7 @@ STATE = {
 SECTIONS = [
     "billboard", "stocks_flow", "rapid_rise", "capital_attention",
     "sectors_hot", "sectors_outflow", "institution", "youzi", "summary",
+    "hot_billboard",
 ]
 
 
@@ -79,6 +80,58 @@ def load_data(section, td):
 
 
 # ----------------------- 数据构建 -----------------------
+
+
+def compute_hot_billboard(billboard, limit_up):
+    """龙虎榜 ∩ 涨停榜 = 热点重合排行榜。
+
+    billboard / limit_up 可为回退日期的数据（如当日涨停缺失时取最近可用日）。
+    返回按龙虎榜净买入额降序的重合列表。
+    """
+    result = []
+    if not billboard or not limit_up:
+        return result
+    bb_codes = {b.get("code") for b in billboard if b.get("code")}
+    for lu in limit_up:
+        code = lu.get("code")
+        if not code or code not in bb_codes:
+            continue
+        b = next((x for x in billboard if x.get("code") == code), None)
+        result.append({
+            "code": code,
+            "name": lu.get("name"),
+            "close": b.get("close") if b else None,
+            "change_pct": b.get("change_pct") if b else None,
+            "turnover": b.get("turnover") if b else None,
+            "net_amt": b.get("net_amt") if b else None,
+            "buy_amt": b.get("buy_amt") if b else None,
+            "sell_amt": b.get("sell_amt") if b else None,
+            "deal_amt": b.get("deal_amt") if b else None,
+            "inst_buy_cnt": b.get("inst_buy_cnt") if b else 0,
+            "inst_sell_cnt": b.get("inst_sell_cnt") if b else 0,
+            "free_cap": b.get("free_cap") if b else None,
+            "d1": b.get("d1") if b else None,
+            "d2": b.get("d2") if b else None,
+            "d5": b.get("d5") if b else None,
+            "d10": b.get("d10") if b else None,
+            "bb_reason": b.get("reason") if b else None,
+            "explain": b.get("explain") if b else None,
+            "limit_count": lu.get("limit_count") or 1,
+            "limit_tag": lu.get("limit_tag") or "首板",
+            "lu_reason": lu.get("reason"),
+            "themes": lu.get("themes"),
+            "seal_amount": lu.get("seal_amount"),
+            "seal_money": lu.get("seal_money"),
+            "net_inflow": lu.get("net_inflow"),
+            "turnover_rate": lu.get("turnover_rate"),
+            "market_cap": lu.get("market_cap"),
+            "industry_zt": lu.get("industry_zt"),
+        })
+    result.sort(
+        key=lambda x: x["net_amt"] if x["net_amt"] is not None else -1e18,
+        reverse=True,
+    )
+    return result
 def _derive_stocks(stocks):
     inflow = sorted([s for s in stocks if s["main_net"] is not None],
                     key=lambda x: x["main_net"], reverse=True)
@@ -122,6 +175,37 @@ def build_all(trade_date=None, force=False):
         sources["limit_up"] = "live"
     else:
         sources["limit_up"] = "demo" if db.is_available() else "n/a"
+
+    # 1.7) 龙虎榜 ∩ 涨停榜 = 热点重合排行榜
+    # 涨停数据来自开盘红（仅历史日期），若当日空缺则回退最近可用日期
+    hot_billboard = []
+    hb_date = trade_date
+    hb_lu = limit_up
+    if not hb_lu:
+        # 尝试从 MySQL 找最近有涨停数据的交易日
+        lu_dates = db.list_limitup_dates()
+        if lu_dates:
+            hb_date = lu_dates[0]  # 最新日期（降序）
+            hb_lu = db.load_limit_up(hb_date) or []
+            # 同时加载该日期的龙虎榜数据
+            hb_bb = db.load_section(hb_date, "billboard") or []
+            if not hb_bb:
+                # 若缓存中无该日龙虎榜，重新抓取
+                hb_bb_raw = em.fetch_billboard_raw(hb_date)
+                hb_bb = [em.normalize_billboard(r) for r in hb_bb_raw] if hb_bb_raw else []
+            if hb_lu:
+                print("[build] hot_billboard fallback: using date=%s (live limit_up, limit_up=%d, bb=%d)"
+                      % (hb_date, len(hb_lu), len(hb_bb)))
+    else:
+        hb_bb = billboard
+
+    if hb_bb and hb_lu:
+        hot_billboard = compute_hot_billboard(hb_bb, hb_lu)
+        for _it in hot_billboard:
+            _it["hb_date"] = hb_date
+        sources["hot_billboard"] = "live"
+    else:
+        sources["hot_billboard"] = "demo" if not hb_lu else "n/a"
 
     # 2) 个股池（资金流/涨幅/关注共用）
     raw = em.fetch_clist(em.STOCK_FS, "f62", 400, em.FIELD_STOCK)
@@ -200,6 +284,7 @@ def build_all(trade_date=None, force=False):
         "sectors_outflow": sectors_outflow,
         "institution": {"buy": inst, "sell": inst_sell},
         "youzi": youzi,
+        "hot_billboard": hot_billboard,
         "summary": summary,
     }
 
@@ -232,17 +317,60 @@ def ensure_built(force=False):
 
 
 # ----------------------- 定时调度 -----------------------
+# 容器系统时钟为 UTC，盘后刷新窗口必须用北京时间判断，否则会整体错位到 UTC 深夜。
+CST = datetime.timezone(datetime.timedelta(hours=8))
+
+
+def _beijing_now():
+    return datetime.datetime.now(CST)
+
+
+def backfill_recent(max_days=12, force=False):
+    """补齐最近交易日中缺失的真实数据（龙虎榜/席位/极速拉升/涨停/重合榜）。
+
+    这些看板不依赖被封的 push2 接口，可正常拿历史真实数据；且每天数据按交易日
+    落盘到 cache/<td>/ 并双写 MySQL，实现"每日保存"与历史回看。
+    仅当该日数据尚未保存时才抓取（force=True 时强制重抓）。
+    """
+    today = _beijing_now().date()
+    d = today
+    scanned = 0
+    while scanned < max_days * 3:
+        scanned += 1
+        if em.is_trading_day(d):
+            td = d.isoformat()
+            existing = db.load_section(td, "billboard")
+            if force or not existing:
+                try:
+                    build_all(td, force=True)
+                    print("[backfill] 补齐 %s 数据完成" % td)
+                except Exception as e:
+                    print("[backfill] %s 失败: %s" % (td, e))
+            # 独立补齐涨停数据：避免时区守卫误判"当日"导致漏存
+            # （仅当该日涨停未落库时抓取，与龙虎榜是否缺失解耦）
+            if not db.load_limit_up(td):
+                try:
+                    lu = em.fetch_limit_up(td)
+                    if lu:
+                        db.save_limit_up(lu)
+                        print("[backfill] 补齐 %s 涨停 %d 条" % (td, len(lu)))
+                except Exception as e:
+                    print("[backfill] %s 涨停补齐失败: %s" % (td, e))
+        d -= datetime.timedelta(days=1)
+
+
 def scheduler_loop():
-    """交易日 15:35 起尝试刷新；之后 16:30/18:00/20:00 再补抓。"""
+    """交易日北京时间 15:35 起自动刷新；16:30/18:00/20:00 补抓；每日补齐缺失历史。"""
     tried = {}
+    last_backfill = None
     while True:
         try:
-            now = datetime.datetime.now()
+            now = _beijing_now()
             td = em.resolve_trade_date()
             if not em.is_trading_day(now.date()):
                 time.sleep(300)
                 continue
-            # 刷新窗口
+            # 刷新窗口（北京时间）
             window = [(15, 35), (16, 30), (18, 0), (20, 0)]
             for (h, m) in window:
                 key = "%s-%02d%02d" % (td, h, m)
@@ -251,6 +379,11 @@ def scheduler_loop():
                 if now.hour > h or (now.hour == h and now.minute >= m):
                     build_all(td, force=True)
                     tried[key] = True
+            # 每个自然日补齐一次缺失历史（周末/假期/容器重启漏抓也能补救）
+            today_key = now.strftime("%Y-%m-%d")
+            if last_backfill != today_key:
+                backfill_recent()
+                last_backfill = today_key
             # 清理昨天的 tried key
             tried = {k: v for k, v in tried.items() if k.startswith(td)}
         except Exception as e:
@@ -322,7 +455,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 return default
 
         ensure_built()
-        td = STATE.get("trade_date") or em.resolve_trade_date()
+        # 支持 ?date=YYYY-MM-DD 回看历史交易日（数据来自 MySQL/缓存，不影响最新构建）
+        _requested = qs.get("date", [None])[0]
+        td = _requested or (STATE.get("trade_date") or em.resolve_trade_date())
 
         if path == "/api/status":
             self._send_json({
@@ -365,6 +500,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if path == "/api/youzi":
             data = load_data("youzi", td) or []
             self._send_json(data[:lim(50)])
+            return
+        if path == "/api/hot-billboard":
+            data = load_data("hot_billboard", td) or []
+            # 当前交易日热点重合榜可能为空（当日涨停数据尚未出炉，开盘红仅支持历史日），
+            # 未显式指定日期时回退到最近一个有涨停数据的交易日，避免出现空列表。
+            if not data and not _requested:
+                fb = db.list_limitup_dates() or []
+                if fb:
+                    data = load_data("hot_billboard", fb[0]) or []
+            self._send_json(data[:lim(200)])
             return
         if path == "/api/history/dates":
             self._send_json({"dates": db.list_dates(), "source": "mysql" if db.is_available() else "json"})
@@ -717,6 +862,11 @@ def main():
         print("[main] MySQL 未就绪，已回退 JSON 缓存（运行中会自动重试连接）。")
     print("构建初始数据 ...")
     ensure_built(force=False)
+    # 启动时补齐最近交易日的缺失数据（每日保存/历史回看保障）
+    try:
+        backfill_recent()
+    except Exception as e:
+        print("[main] backfill 异常：", e)
     t = threading.Thread(target=scheduler_loop, daemon=True)
     t.start()
     with socketserver.ThreadingTCPServer(("0.0.0.0", PORT), Handler) as httpd:

@@ -403,7 +403,11 @@ def fetch_limit_up(trade_date, timeout=20):
         d = datetime.datetime.strptime(trade_date, "%Y-%m-%d").date()
     except Exception:
         return []
-    if d >= datetime.date.today():
+    # 用北京时间判断"当日"（容器系统时钟为 UTC，否则会把昨天误判为当日而漏抓）
+    _today = datetime.datetime.now(
+        datetime.timezone(datetime.timedelta(hours=8))
+    ).date()
+    if d >= _today:
         return []
     rows = []
     index = 0

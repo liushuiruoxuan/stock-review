@@ -19,6 +19,7 @@ node_modules/
 frontend/dist/
 frontend/node_modules/
 dist/
+frontend_dist/
 .cache/
 
 # ===== 运行时 / 日志 =====

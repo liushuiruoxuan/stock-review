@@ -38,10 +38,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
-import { api } from '../api'
+import { api, ui } from '../api'
 import { fmtYuan, fmtPct, trendClass } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 
@@ -85,7 +85,8 @@ const YZ_MOBILE = [
 ]
 const youziCols = computed(() => isMobile.value ? YZ_MOBILE : YZ_DESKTOP)
 
-onMounted(async () => {
+async function loadAll() {
+  loading.value = true
   try {
     const [i, y] = await Promise.all([api.institution(), api.youzi(60)])
     inst.value = i || { buy: [], sell: [] }
@@ -93,7 +94,11 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
-})
+}
+
+onMounted(loadAll)
+// 历史回看日期切换时自动重新加载
+watch(() => ui.selectedDate, loadAll)
 </script>
 
 <style scoped>

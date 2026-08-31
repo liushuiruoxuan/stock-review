@@ -12,7 +12,7 @@
       <div class="filters">
         <div class="f-item">
           <span class="f-label">交易日</span>
-          <el-select v-model="selDate" size="small" style="width: 150px" @change="reload">
+          <el-select v-model="selDate" size="small" style="width: 150px" @change="onLocalDate">
             <el-option v-for="d in dates" :key="d" :label="d" :value="d" />
           </el-select>
         </div>
@@ -146,11 +146,11 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, watch } from 'vue'
 import { Search, Download } from '@element-plus/icons-vue'
 import DataTable from '../components/DataTable.vue'
 import SourceTag from '../components/SourceTag.vue'
-import { api } from '../api'
+import { api, ui } from '../api'
 import { fmtYuan, fmtPct, trendClass, yuanClass } from '../utils/format'
 import { useResponsive } from '../composables/useResponsive'
 
@@ -250,7 +250,22 @@ function doExport() {
   window.open(url, '_blank')
 }
 
-onMounted(reload)
+function onLocalDate() {
+  // 内部日期选择器变更时同步到全局，触发 watch 内统一 reload
+  ui.selectedDate = selDate.value
+}
+
+function init() {
+  selDate.value = ui.selectedDate || ''
+  reload()
+}
+
+onMounted(init)
+// 全局日期切换器变更时，同步内部选择并重新加载
+watch(() => ui.selectedDate, () => {
+  selDate.value = ui.selectedDate || ''
+  reload()
+})
 </script>
 
 <style scoped>

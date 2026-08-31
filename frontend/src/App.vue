@@ -27,9 +27,10 @@
       <el-button :icon="Menu" text class="topbar-menu-btn" @click="drawerVisible = true" />
       <div class="topbar-center">
         <span class="topbar-title">{{ currentTitle }}</span>
-        <el-tag v-if="ui.tradeDate" size="small" type="info" effect="plain" class="topbar-date">
-          {{ ui.tradeDate }}
-        </el-tag>
+        <el-select v-model="ui.selectedDate" placeholder="最新" size="small" class="topbar-date-select">
+          <el-option label="最新" value="" />
+          <el-option v-for="d in ui.availableDates" :key="d" :label="d" :value="d" />
+        </el-select>
       </div>
       <el-button :icon="Refresh" text :loading="refreshing" class="topbar-refresh-btn" @click="doRefresh" />
     </div>
@@ -40,7 +41,10 @@
       <div v-if="!isMobile" class="header">
         <div class="header-left">
           <span class="page-title">{{ currentTitle }}</span>
-          <el-tag v-if="ui.tradeDate" size="small" type="info" effect="plain">
+          <el-tag v-if="ui.selectedDate" size="small" type="warning" effect="plain">
+            回看 {{ ui.selectedDate }}
+          </el-tag>
+          <el-tag v-else size="small" type="info" effect="plain">
             交易日 {{ ui.tradeDate }}
           </el-tag>
         </div>
@@ -49,6 +53,10 @@
             数据
             <b :class="srcClass('billboard')">{{ srcText('billboard') }}</b>
           </span>
+          <el-select v-model="ui.selectedDate" placeholder="最新" size="small" class="date-select">
+            <el-option label="最新" value="" />
+            <el-option v-for="d in ui.availableDates" :key="d" :label="d" :value="d" />
+          </el-select>
           <el-button size="small" :icon="Refresh" :loading="refreshing" @click="doRefresh">
             刷新数据
           </el-button>
@@ -95,7 +103,7 @@
 import { computed, ref, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { Refresh, Menu } from '@element-plus/icons-vue'
-import { ui, loadStatus, api } from './api'
+import { ui, loadStatus, loadDates, api } from './api'
 import { useResponsive } from './composables/useResponsive'
 
 const route = useRoute()
@@ -106,6 +114,7 @@ const { isMobile } = useResponsive()
 const menus = [
   { path: '/', title: '总览', icon: 'DataLine' },
   { path: '/limit-up', title: '涨停排行', icon: 'Top' },
+  { path: '/hot-billboard', title: '热点重合榜', icon: 'TrendCharts' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
   { path: '/rapid-rise', title: '极速拉升', icon: 'Top' },
   { path: '/institution-youzi', title: '机构 / 游资', icon: 'User' },
@@ -136,6 +145,7 @@ async function doRefresh() {
 
 onMounted(() => {
   loadStatus()
+  loadDates()
 })
 </script>
 
@@ -244,6 +254,8 @@ html, body {
   text-overflow: ellipsis;
 }
 .topbar-date { flex-shrink: 0; }
+.topbar-date-select { width: 116px; flex-shrink: 0; }
+.topbar-date-select :deep(.el-input__wrapper) { padding: 0 8px; }
 
 /* ====== 桌面顶栏 ====== */
 .header {
@@ -263,6 +275,7 @@ html, body {
 .src-mini b { margin-left: 4px; font-weight: 600; }
 .t-live { color: #16a34a; }
 .t-demo { color: #d48806; }
+.date-select { width: 140px; }
 
 /* ====== 滚动内容区 ====== */
 .main {

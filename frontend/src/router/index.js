@@ -10,6 +10,7 @@ import InstitutionYouzi from '../views/InstitutionYouzi.vue'
 import Monitor from '../views/Monitor.vue'
 import Seats from '../views/Seats.vue'
 import LimitUp from '../views/LimitUp.vue'
+import HotBillboard from '../views/HotBillboard.vue'
 
 const routes = [
   { path: '/', name: 'dashboard', component: Dashboard, meta: { title: '总览', icon: 'DataLine' } },
@@ -21,7 +22,8 @@ const routes = [
   { path: '/institution-youzi', name: 'institution-youzi', component: InstitutionYouzi, meta: { title: '机构 / 游资', icon: 'User', section: 'institution' } },
   { path: '/monitor', name: 'monitor', component: Monitor, meta: { title: '资金监控', icon: 'Bell', section: 'monitor' } },
   { path: '/seats', name: 'seats', component: Seats, meta: { title: '席位监控', icon: 'OfficeBuilding', section: 'seats' } },
-  { path: '/limit-up', name: 'limit-up', component: LimitUp, meta: { title: '涨停排行', icon: 'Top', section: 'limit_up' } }
+  { path: '/limit-up', name: 'limit-up', component: LimitUp, meta: { title: '涨停排行', icon: 'Top', section: 'limit_up' } },
+  { path: '/hot-billboard', name: 'hot-billboard', component: HotBillboard, meta: { title: '热点重合榜', icon: 'TrendCharts', section: 'hot_billboard' } }
 ]
 
 const router = createRouter({
