@@ -181,6 +181,7 @@ def build_all(trade_date=None, force=False):
     hot_billboard = []
     hb_date = trade_date
     hb_lu = limit_up
+    hb_bb = billboard  # 兜底：无涨停数据可回退时，重合榜自然为空，避免 hb_bb 未定义
     if not hb_lu:
         # 尝试从 MySQL 找最近有涨停数据的交易日
         lu_dates = db.list_limitup_dates()
