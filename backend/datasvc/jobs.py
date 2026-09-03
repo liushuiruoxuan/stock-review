@@ -37,7 +37,13 @@ def _build_today():
 def _sync_daily_bars():
     try:
         from datasvc import bars
-        bars.sync_bars_daily()
+        # 自愈：首次运行（库里无任何日线）时引导一次全量初始化，
+        # 断点续传，东财限流恢复后自动补全 10 年日线。
+        if marketdb.bars_count() == 0:
+            print("[jobs] 检测到日线为空，引导全量同步…")
+            bars.sync_bars_full()
+        else:
+            bars.sync_bars_daily()
     except Exception as e:
         print("[jobs] 日线增量失败：", e)
 

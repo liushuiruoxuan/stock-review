@@ -113,15 +113,21 @@ def fetch_kline_sina(code, datalen=1023, timeout=15):
     return rows
 
 
-def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01"):
-    """带重试与备源的日线抓取。返回行列表（可能为空）。"""
+def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", em_only=False):
+    """带重试与备源的日线抓取。返回行列表（可能为空）。
+
+    em_only=True 时东财失败直接返回空（不降级新浪）——用于全量同步，
+    避免新浪（仅 ~4 年且无成交额）污染 10 年数据集被误标为“已覆盖”。
+    """
     for wait in RETRY_BACKOFF:
         rows = fetch_kline_em(code, beg, end)
         if rows is not None:
             time.sleep(REQ_INTERVAL)
             return rows
         time.sleep(wait)
-    # 东财彻底失败 → 新浪兜底
+    if em_only:
+        return []
+    # 东财彻底失败 → 新浪兜底（仅增量等非全量场景）
     rows = fetch_kline_sina(code)
     if rows:
         lo = beg.replace("-", "")
@@ -287,7 +293,7 @@ def sync_bars_full(beg="2016-01-01", task_id=None):
     total = len(todo)
     print("[datasvc] 日线全量同步开始：共 %d 只待抓（全市场 %d 只）" % (total, len(codes)))
     for i, code in enumerate(todo):
-        rows = fetch_daily_bars(code, beg=beg)
+        rows = fetch_daily_bars(code, beg=beg, em_only=True)
         if rows:
             marketdb.upsert_bars(_bar_rows_with_code(code, rows))
         if task_id and (i % 20 == 0 or i == total - 1):
