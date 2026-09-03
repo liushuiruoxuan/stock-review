@@ -13,6 +13,7 @@
   - 逐条容错：单只解析失败跳过，整源不可用返回空结构由前端降级展示
   - 涨跌幅优先取源字段，缺失时用 (close - prev_close) / prev_close 反算
 """
+import datetime
 import json
 import ssl
 import time
@@ -50,6 +51,14 @@ QUOTE_DEFS = [
 
 _SSL_CTX = None
 _CACHE = {"quotes": None, "quotes_ts": 0.0, "news": None, "news_ts": 0.0}
+
+# 容器时区为 UTC，直接 time.strftime 会显示成凌晨，与新闻的北京时间对不上
+_CST = datetime.timezone(datetime.timedelta(hours=8))
+
+
+def _now_cst():
+    """北京时间 'YYYY-MM-DD HH:MM:SS'。"""
+    return datetime.datetime.now(_CST).strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _ctx():
@@ -210,7 +219,7 @@ def fetch_global_quotes(force=False):
                 "pct": _round(pct, 2), "time": d.get("time"),
             })
 
-    res = {"updated_at": time.strftime("%Y-%m-%d %H:%M:%S"), "quotes": out}
+    res = {"updated_at": _now_cst(), "quotes": out}
     # 源不可用且无缓存时，不写入空结果，避免短暂失败把好数据冲掉
     if out or _CACHE["quotes"] is None:
         _CACHE["quotes"] = res
