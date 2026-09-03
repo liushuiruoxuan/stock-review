@@ -11,6 +11,11 @@ import Monitor from '../views/Monitor.vue'
 import Seats from '../views/Seats.vue'
 import LimitUp from '../views/LimitUp.vue'
 import HotBillboard from '../views/HotBillboard.vue'
+import Game from '../views/Game.vue'
+import StockGame from '../views/StockGame.vue'
+import QuantBacktest from '../views/QuantBacktest.vue'
+import QuantScreener from '../views/QuantScreener.vue'
+import BigScreen from '../views/BigScreen.vue'
 
 const routes = [
   { path: '/', name: 'dashboard', component: Dashboard, meta: { title: '总览', icon: 'DataLine' } },
@@ -23,7 +28,12 @@ const routes = [
   { path: '/monitor', name: 'monitor', component: Monitor, meta: { title: '资金监控', icon: 'Bell', section: 'monitor' } },
   { path: '/seats', name: 'seats', component: Seats, meta: { title: '席位监控', icon: 'OfficeBuilding', section: 'seats' } },
   { path: '/limit-up', name: 'limit-up', component: LimitUp, meta: { title: '涨停排行', icon: 'Top', section: 'limit_up' } },
-  { path: '/hot-billboard', name: 'hot-billboard', component: HotBillboard, meta: { title: '热点重合榜', icon: 'TrendCharts', section: 'hot_billboard' } }
+  { path: '/hot-billboard', name: 'hot-billboard', component: HotBillboard, meta: { title: '热点重合榜', icon: 'TrendCharts', section: 'hot_billboard' } },
+  { path: '/game', name: 'game', component: Game, meta: { title: '资金博弈', icon: 'Aim' } },
+  { path: '/game/stock/:code', name: 'game-stock', component: StockGame, meta: { title: '个股博弈' } },
+  { path: '/quant', name: 'quant', component: QuantBacktest, meta: { title: '量化回测', icon: 'DataAnalysis' } },
+  { path: '/quant/screener', name: 'quant-screener', component: QuantScreener, meta: { title: '条件选股', icon: 'Search' } },
+  { path: '/bigscreen', name: 'bigscreen', component: BigScreen, meta: { title: '资金大屏', icon: 'Monitor' } }
 ]
 
 const router = createRouter({

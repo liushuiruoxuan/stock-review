@@ -1,5 +1,7 @@
 <template>
-  <div class="app-root" :class="{ 'is-mobile': isMobile }">
+  <!-- 大屏路由：全屏渲染，不带工作台壳 -->
+  <router-view v-if="isBigscreen" />
+  <div v-else class="app-root" :class="{ 'is-mobile': isMobile }">
 
     <!-- ====== 桌面侧边栏 ====== -->
     <el-aside v-if="!isMobile" width="212px" class="aside">
@@ -115,15 +117,20 @@ const menus = [
   { path: '/', title: '总览', icon: 'DataLine' },
   { path: '/limit-up', title: '涨停排行', icon: 'Top' },
   { path: '/hot-billboard', title: '热点重合榜', icon: 'TrendCharts' },
+  { path: '/game', title: '资金博弈', icon: 'Aim' },
+  { path: '/bigscreen', title: '资金大屏', icon: 'Monitor' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
   { path: '/rapid-rise', title: '极速拉升', icon: 'Top' },
   { path: '/institution-youzi', title: '机构 / 游资', icon: 'User' },
   { path: '/monitor', title: '资金监控', icon: 'Bell' },
-  { path: '/seats', title: '席位监控', icon: 'OfficeBuilding' }
+  { path: '/seats', title: '席位监控', icon: 'OfficeBuilding' },
+  { path: '/quant', title: '量化回测', icon: 'DataAnalysis' },
+  { path: '/quant/screener', title: '条件选股', icon: 'Search' }
 ]
 
 const activePath = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '总览')
+const isBigscreen = computed(() => route.path === '/bigscreen')
 
 function srcText(k) {
   return ui.sources[k] === 'demo' ? '示例' : '实时'

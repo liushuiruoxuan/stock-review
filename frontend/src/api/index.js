@@ -43,7 +43,26 @@ export const api = {
   limitupNews: (code, name) => getJSON('/api/limitup/news?' + qs({ code, name })),
   hotBillboard: (limit = 200) => getJSON(`/api/hot-billboard?limit=${limit}${dq()}`),
   historyDates: () => getJSON('/api/history/dates'),
-  refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => r.json())
+  refresh: () => fetch('/api/refresh', { method: 'POST' }).then((r) => r.json()),
+
+  // ===== v2：大屏 / 博弈 / 行情 / 量化 =====
+  bigscreen: () => getJSON('/api/bigscreen/overview' + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  gameOverview: () => getJSON('/api/game/overview' + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  gameStock: (code) => getJSON('/api/game/stock/' + code + (ui.selectedDate ? '?date=' + ui.selectedDate : '')),
+  marketOverview: () => getJSON('/api/market/overview'),
+  marketSync: (scope) => fetch('/api/market/sync?scope=' + scope, { method: 'POST' }).then((r) => r.json()),
+  marketSyncStatus: () => getJSON('/api/market/sync/status'),
+  quantStrategies: () => getJSON('/api/quant/strategies'),
+  quantBacktest: (body) => fetch('/api/quant/backtest', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  }).then((r) => r.json()),
+  quantRun: (id) => getJSON('/api/quant/runs/' + id),
+  quantRuns: () => getJSON('/api/quant/runs'),
+  quantScreener: (conds) => fetch('/api/quant/screener', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(conds)
+  }).then((r) => r.json())
 }
 
 // 全局 UI 状态：数据源(live/demo)、交易日、历史回看日期等
