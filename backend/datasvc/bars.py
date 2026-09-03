@@ -289,6 +289,14 @@ def sync_bars_full(beg="2016-01-01", task_id=None):
     codes = [i["code"] for i in insts]
     coverage = marketdb.bar_coverage()
     end = datetime.date.today().isoformat()
+
+    # 断路器：先探一根日K确认东财可达；限流时立即中止，
+    # 避免对 5000+ 标的空转重试（每只 3 次退避 ≈ 数小时）。
+    probe = fetch_kline_em("000001", beg="20260801", end="20500101")
+    if probe is None:
+        print("[datasvc] 日线全量同步中止：东财日K不可达（可能限流），待冷却后自愈重试")
+        return 0
+
     todo = [c for c in codes if not coverage.get(c) or coverage[c] < end]
     total = len(todo)
     print("[datasvc] 日线全量同步开始：共 %d 只待抓（全市场 %d 只）" % (total, len(codes)))
