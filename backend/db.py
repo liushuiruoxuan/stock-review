@@ -14,6 +14,7 @@ MySQL 存储层（股票每日复盘）。
   - 这样即使 MySQL 完全不可用，看板依旧可用。
 """
 import json
+import queue as _queue_mod
 import threading
 import time
 
@@ -112,15 +113,45 @@ def is_available():
     return (not _hard_disabled) and (not _soft_bad)
 
 
-def get_conn():
-    """返回连接；不可用/失败返回 None。失败不永久禁用，会按间隔自动重试。"""
-    global _fail_streak, _soft_bad, _conn_err_shown, _last_try
-    if _hard_disabled:
-        return None
-    now = time.time()
-    if _soft_bad and (now - _last_try) < _retry_interval:
-        return None
-    _last_try = now
+# ----------------------- 连接池 -----------------------
+# v2：进程级连接池（LIFO），复用连接避免每请求新建。对外接口不变：
+# 调用方仍拿 conn 并 conn.close()，close() 时归还池中而非真关闭。
+_pool_size = 8
+_pool = _queue_mod.LifoQueue(maxsize=_pool_size)
+
+
+class _PooledConn:
+    """连接包装：close() 归还连接池；死连接（ping 失败）直接丢弃。"""
+
+    def __init__(self, conn):
+        self._conn = conn
+        self._returned = False
+
+    def close(self):
+        if self._returned:
+            return
+        self._returned = True
+        try:
+            self._conn.ping(reconnect=False)  # 死连接不入池
+            _pool.put_nowait(self._conn)
+        except _queue_mod.Full:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+        except Exception:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+
+def _new_conn():
+    """真正新建一条 MySQL 连接；失败返回 None 并维护软禁用状态。"""
+    global _fail_streak, _soft_bad, _conn_err_shown
     try:
         conn = pymysql.connect(
             host=DB_CONFIG["host"],
@@ -146,6 +177,36 @@ def get_conn():
         if _fail_streak >= _fail_max:
             _soft_bad = True
         return None
+
+
+def get_conn():
+    """返回（池化的）连接；不可用/失败返回 None。失败不永久禁用，会按间隔自动重试。"""
+    global _last_try
+    if _hard_disabled:
+        return None
+    now = time.time()
+    if _soft_bad and (now - _last_try) < _retry_interval:
+        return None
+    _last_try = now
+    # 1) 优先从池中取（保活校验）
+    try:
+        pooled = _pool.get_nowait()
+    except _queue_mod.Empty:
+        pooled = None
+    if pooled is not None:
+        try:
+            pooled.ping(reconnect=True)
+            return _PooledConn(pooled)
+        except Exception:
+            try:
+                pooled.close()
+            except Exception:
+                pass
+    # 2) 池空则新建
+    conn = _new_conn()
+    if conn is None:
+        return None
+    return _PooledConn(conn)
 
 
 def init_db():
