@@ -163,15 +163,19 @@ def fetch_index_bars(code, beg="2016-01-01", end="2050-01-01"):
 
 
 # ------------------------- 标的列表 -------------------------
+SINA_PAGE_SIZE = 100  # 新浪该接口每页上限 100（num>100 仍只返回 100）
+
+
 def _fetch_instruments_sina():
-    """新浪市场中心拉全 A 股列表（node=hs_a）。过滤到 0/3/6 开头的主板/创业板/科创板，
-    排除北交所(4/8/92)、B股(9) 等小众标的。返回 [{code, name, market}]。"""
+    """新浪市场中心拉全 A 股列表（node=hs_a，按 symbol 升序翻页，每页 100）。
+    过滤到 0/3/6 开头的主板/创业板/科创板，排除北交所(4/8/92)、B股(9) 等小众标的。
+    返回 [{code, name, market}]。"""
     out = []
     page = 1
-    while page <= 3:
+    while page <= 60:  # 全 A 约 5400 只 / 100 每页 ≈ 54 页
         url = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
-               "Market_Center.getHQNodeData?page=%d&num=5000&sort=symbol&asc=1"
-               "&node=hs_a&symbol=&_s_r_a=auto" % page)
+               "Market_Center.getHQNodeData?page=%d&num=%d&sort=symbol&asc=1"
+               "&node=hs_a&symbol=&_s_r_a=auto" % (page, SINA_PAGE_SIZE))
         try:
             req = urllib.request.Request(url, headers={
                 "User-Agent": em.UA, "Referer": "https://finance.sina.com.cn/"})
@@ -190,10 +194,10 @@ def _fetch_instruments_sina():
                 "name": it.get("name") or "",
                 "market": "SH" if code.startswith("6") else "SZ",
             })
-        if len(data) < 5000:
+        if len(data) < SINA_PAGE_SIZE:
             break
         page += 1
-        time.sleep(0.2)
+        time.sleep(0.15)
     return out
 
 
