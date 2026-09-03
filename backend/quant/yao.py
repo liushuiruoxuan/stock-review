@@ -278,8 +278,13 @@ def scan(days=60, top=20, end=None):
 
     out.sort(key=lambda r: r["score"], reverse=True)
     out = out[: int(top)]
+    # 数据完整度：有多少只标的的行情已覆盖到截止日 end（供前端提示回填进度）
+    covered = sum(1 for _c, _b in by_code.items()
+                  if _b and _b[-1]["trade_date"] == end)
     data = {"bar_date": end, "win_start": win_start,
-            "count": len(out), "rows": out}
+            "count": len(out), "rows": out,
+            "coverage": {"covered": covered,
+                         "total": marketdb.count_instruments()}}
     _CACHE["list"][key] = {"ts": time.time(), "data": data}
     return data
 

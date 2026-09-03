@@ -19,6 +19,15 @@
         </div>
       </template>
 
+      <el-alert
+        v-if="coverageHint"
+        :type="coverageHint.tone"
+        :closable="false"
+        show-icon
+        class="cov-hint"
+        :title="coverageHint.text"
+      />
+
       <el-table
         :data="res.rows || []"
         stripe
@@ -223,6 +232,23 @@ async function openProfile(row) {
   prof.value = await api.yaoProfile(row.code, 60, cutoff.value)
 }
 
+// 数据完整度提示：行情库回填是否覆盖到所选截止日
+const coverageHint = computed(() => {
+  const c = res.value.coverage
+  if (!c || !c.total) return null
+  const pct = Math.round((c.covered / c.total) * 100)
+  if (c.covered >= c.total) {
+    return {
+      tone: 'success',
+      text: `行情库已全覆盖 ${c.total} 只标的，本榜数据截至 ${res.value.bar_date || '--'}，可信。`
+    }
+  }
+  return {
+    tone: 'warning',
+    text: `行情库回填中：仅 ${c.covered}/${c.total} 只标的（${pct}%）覆盖到 ${res.value.bar_date || '--'}，未覆盖标的最新日数据缺失，榜单只含已覆盖股票；全量回填完成后自动 100%。`
+  }
+})
+
 function stageTag(s) {
   if (s === '加速') return 'danger'
   if (s === '主升') return 'warning'
@@ -312,6 +338,7 @@ onMounted(async () => {
   border-top: 1px dashed #eef0f4; padding-top: 8px;
 }
 .risk-alert { margin-bottom: 8px; }
+.cov-hint { margin-bottom: 12px; }
 .score-row { display: flex; gap: 18px; margin: 6px 0 14px; }
 .score-item { flex: 1; }
 .score-label { font-size: 12px; color: #8a93a6; margin-bottom: 4px; }
