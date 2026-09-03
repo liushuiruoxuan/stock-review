@@ -182,6 +182,14 @@ def fetch_kline_tencent(code, beg="2016-01-01", end="2050-01-01", timeout=20):
 _BS_STATE = {"logged_in": False}
 
 
+def _norm_date(d):
+    """把 'YYYYMMDD' 归一化为 'YYYY-MM-DD'（baostock 要求带横杠）。"""
+    d = str(d)
+    if len(d) == 8 and "-" not in d:
+        return "%s-%s-%s" % (d[:4], d[4:6], d[6:8])
+    return d
+
+
 def _bs_login():
     """懒登录 baostock（全局会话，进程内仅需一次）。未安装或登录失败返回 None。"""
     try:
@@ -205,7 +213,8 @@ def fetch_kline_baostock(code, beg="2016-01-01", end="2050-01-01", timeout=30):
     if bs is None:
         return None
     scode = ("sh." if str(code).startswith(("6", "9")) else "sz.") + str(code)
-    end = min(end, datetime.date.today().isoformat())
+    beg = _norm_date(beg)
+    end = min(_norm_date(end), datetime.date.today().isoformat())
     try:
         rs = bs.query_history_k_data_plus(
             scode, "date,open,high,low,close,volume,amount,turn,pctChg",
@@ -439,7 +448,7 @@ def sync_bars_full(beg="2016-01-01", task_id=None):
 
     # 断路器：先探一根日K确认任一备源可达；均限流时立即中止，
     # 避免对 5000+ 标的空转重试（每只 3 次退避 ≈ 数小时）。
-    probe = fetch_daily_bars("000001", beg="20260801", fallback=("baostock", "tencent"))
+    probe = fetch_daily_bars("000001", beg="2026-08-01", fallback=("baostock", "tencent"))
     if not probe:
         print("[datasvc] 日线全量同步中止：东财/腾讯/baostock 日K均不可达（可能限流），待冷却后自愈重试")
         return 0
