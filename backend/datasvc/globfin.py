@@ -2,16 +2,18 @@
 全球财经数据（v2）：全球主要指数 / 商品 / 外汇行情 + 财经要闻快讯。
 
 数据源选型（服务器出口 IP 实测结论，2026-09-03）：
-  - 行情：新浪 hq.sinajs.cn
-      东财 push2his 在该 IP 被持久限流，新浪全球指数/商品/外汇全部可用且无需 key。
-      注意不同前缀字段位置完全不同，按前缀分派解析（见 _PARSERS）。
-  - 要闻：新浪财经 7x24 直播（zhibo_id=152，主源，实时）
-          → 东财快讯 np-listapi（备源；该域名未被限流，与 push2his 不同域）
+  - 行情（混合，各自尽力）：
+      * 美股/港股指数：腾讯 qt.gtimg.cn —— 容器稳定可达（200，~0.2s），覆盖道指/纳指/恒生等。
+      * 标普/亚太/欧洲/商品/外汇：东方财富 push2 ulist.np —— 覆盖最全，但服务器 IP 对该域
+        间歇性限流（RemoteDisconnected），故带重试；被限流时这些分组降级为空，不影响已得的
+        美股/港股。
+      （注：原新浪 hq.sinajs.cn 行情源在本环境容器 DNS 不可达，已弃用。）
+  - 要闻：新浪财经 7x24 直播（zhibo_id=152，主源，实测 200）→ 东财快讯 np-listapi（备源）。
 
 设计要点：
   - 进程内 TTL 缓存：大屏 30s 轮询，避免高频打上游触发限流
-  - 逐条容错：单只解析失败跳过，整源不可用返回空结构由前端降级展示
-  - 涨跌幅优先取源字段，缺失时用 (close - prev_close) / prev_close 反算
+  - 逐条容错：单只解析失败跳过；整源不可用返回空结构由前端降级展示
+  - 输出结构稳定：quotes={updated_at, quotes:[{code,name,group,close,chg,pct,time}]}
 """
 import datetime
 import json
@@ -19,34 +21,48 @@ import ssl
 import time
 import urllib.request
 
-SINA_QUOTE = "https://hq.sinajs.cn/list="
 SINA_NEWS = ("https://zhibo.sina.com.cn/api/zhibo/feed"
              "?page=1&page_size=20&zhibo_id=152&tag_id=0&dire=f&dpc=1")
 EM_NEWS = ("https://np-listapi.eastmoney.com/comm/web/getFastNewsList"
            "?client=web&biz=web_724&fastColumn=102&sortEnd=&pageSize=20&req_trace=1")
 
+# 行情源
+TX_QUOTE = "https://qt.gtimg.cn/q="
+EM_QUOTE = ("https://push2.eastmoney.com/api/qt/ulist.np/get?fltt=2&invt=2&"
+            "fields=f1,f2,f3,f4,f6,f12,f13,f14&secids=")
+
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0 Safari/537.36"
 SINA_REFERER = "https://finance.sina.com.cn/"
 EM_REFERER = "https://kuaixun.eastmoney.com/"
+TX_REFERER = "https://gu.qq.com/"
 
 QUOTE_TTL = 25      # 行情缓存秒数（大屏 30s 轮询，保证每次刷新基本拿到新值）
 NEWS_TTL = 60       # 要闻缓存秒数
 
-# (新浪代码, 显示名, 分组)
-# 说明：int_dax / int_cac / znb_CAC40 / hf_DX 实测返回空，故 DAX/富时统一用 znb_ 前缀
+# (源, 上游代码, 对外code, 显示名, 分组)
+# 美股/港股走腾讯(稳)；标普/亚太/欧洲/商品/外汇走东财(尽力)。
+# 外汇对外 code 以 fx_ 开头：前端/后端均按此前缀保留 4 位小数。
 QUOTE_DEFS = [
-    ("gb_dji",     "道琼斯",    "美股"),
-    ("gb_ixic",    "纳斯达克",  "美股"),
-    ("gb_inx",     "标普500",   "美股"),
-    ("rt_hkHSI",   "恒生指数",  "港股"),
-    ("rt_hkHSCEI", "国企指数",  "港股"),
-    ("int_nikkei", "日经225",   "亚太"),
-    ("znb_DAX",    "德国DAX",   "欧洲"),
-    ("znb_FTSE",   "富时100",   "欧洲"),
-    ("hf_GC",      "纽约黄金",  "商品"),
-    ("hf_CL",      "纽约原油",  "商品"),
-    ("hf_SI",      "纽约白银",  "商品"),
-    ("fx_susdcny", "美元/人民币", "外汇"),
+    ("tx", "usDJI", "usDJI", "道琼斯", "美股"),
+    ("tx", "usIXIC", "usIXIC", "纳斯达克", "美股"),
+    ("tx", "usNDX", "usNDX", "纳斯达克100", "美股"),
+    ("tx", "hkHSI", "hkHSI", "恒生指数", "港股"),
+    ("tx", "hkHSCEI", "hkHSCEI", "国企指数", "港股"),
+    ("tx", "hkHSTECH", "hkHSTECH", "恒生科技", "港股"),
+    ("em", "100.SPX", "SPX", "标普500", "美股"),
+    ("em", "100.N225", "N225", "日经225", "亚太"),
+    ("em", "100.KOSPI", "KOSPI", "韩国KOSPI", "亚太"),
+    ("em", "100.TWII", "TWII", "台湾加权", "亚太"),
+    ("em", "100.GDAXI", "GDAXI", "德国DAX", "欧洲"),
+    ("em", "100.FCHI", "FCHI", "法国CAC40", "欧洲"),
+    ("em", "100.FTSE", "FTSE", "英国富时100", "欧洲"),
+    ("em", "101.XAU", "XAU", "伦敦金", "商品"),
+    ("em", "101.XAG", "XAG", "伦敦银", "商品"),
+    ("em", "101.CL", "CL", "WTI原油", "商品"),
+    ("em", "101.BRENT", "BRENT", "布伦特原油", "商品"),
+    ("em", "119.USDCNH", "fx_usdcnh", "美元/离岸人民币", "外汇"),
+    ("em", "119.USDJPY", "fx_usdjpy", "美元/日元", "外汇"),
+    ("em", "119.USDIX", "USDIX", "美元指数", "外汇"),
 ]
 
 _SSL_CTX = None
@@ -89,94 +105,9 @@ def _f(v):
 
 
 def _pct_of(close, chg, prev):
-    """涨跌幅：优先反算，保证与涨跌额口径一致。"""
-    if close is None or prev is None:
-        return None
-    if not prev:
+    if close is None or prev is None or not prev:
         return None
     return (close - prev) / prev * 100
-
-
-# ====== 各前缀解析（字段位置由实测确定）======
-
-def _parse_gb(p):
-    """美股 gb_：名称,现价,涨跌幅%,时间,涨跌额,开,高,低,...,昨收(26)"""
-    close, pct, chg = _f(p[1]), _f(p[2]), _f(p[4])
-    prev = _f(p[26]) if len(p) > 26 else None
-    if prev is None and close is not None and chg is not None:
-        prev = close - chg
-    return {"close": close, "chg": chg, "prev_close": prev, "pct": pct,
-            "time": p[3] if len(p) > 3 else None}
-
-
-def _parse_int(p):
-    """国际指数 int_：名称,现价,涨跌额,涨跌幅%"""
-    close, chg, pct = _f(p[1]), _f(p[2]), _f(p[3])
-    prev = (close - chg) if (close is not None and chg is not None) else None
-    return {"close": close, "chg": chg, "prev_close": prev, "pct": pct, "time": None}
-
-
-def _parse_znb(p):
-    """欧洲 znb_：名称,现价,涨跌额,涨跌幅%,...,日期(6),时间(7),...,昨收(9)"""
-    close, chg, pct = _f(p[1]), _f(p[2]), _f(p[3])
-    prev = _f(p[9]) if len(p) > 9 else None
-    if prev is None and close is not None and chg is not None:
-        prev = close - chg
-    tm = None
-    if len(p) > 7 and p[6] and p[7]:
-        tm = "%s %s" % (p[6], p[7])
-    return {"close": close, "chg": chg, "prev_close": prev, "pct": pct, "time": tm}
-
-
-def _parse_rt_hk(p):
-    """港股 rt_hk：代码,名称,今开,昨收,最高,最低,现价,涨跌额,涨跌幅%"""
-    close, chg, pct = _f(p[6]), _f(p[7]), _f(p[8])
-    return {"close": close, "chg": chg, "prev_close": _f(p[3]), "pct": pct,
-            "time": None}
-
-
-def _parse_hf(p):
-    """商品 hf_：现价,,买,卖,最高,最低,时间(6),昨收(7),开盘(8),...,名称(13)"""
-    close = _f(p[0])
-    prev = _f(p[7]) if len(p) > 7 else None
-    chg = (close - prev) if (close is not None and prev is not None) else None
-    return {"close": close, "chg": chg, "prev_close": prev,
-            "pct": _pct_of(close, chg, prev), "time": p[6] if len(p) > 6 else None}
-
-
-def _parse_fx(p):
-    """外汇 fx_：时间(0),现价(1),...,昨收(8)"""
-    close = _f(p[1])
-    prev = _f(p[8]) if len(p) > 8 else None
-    chg = (close - prev) if (close is not None and prev is not None) else None
-    return {"close": close, "chg": chg, "prev_close": prev,
-            "pct": _pct_of(close, chg, prev), "time": p[0]}
-
-
-_PARSERS = (
-    ("gb_", _parse_gb),
-    ("rt_hk", _parse_rt_hk),
-    ("znb_", _parse_znb),
-    ("int_", _parse_int),
-    ("hf_", _parse_hf),
-    ("fx_", _parse_fx),
-)
-
-
-def _parse_one(code, raw):
-    """按前缀分派解析单只行情。失败返回 None。"""
-    if not raw:
-        return None
-    p = raw.split(",")
-    if len(p) < 2 or not p[0]:
-        return None
-    for prefix, fn in _PARSERS:
-        if code.startswith(prefix):
-            try:
-                return fn(p)
-            except (ValueError, IndexError, TypeError):
-                return None
-    return None
 
 
 def _round(v, n=2):
@@ -185,7 +116,69 @@ def _round(v, n=2):
 
 def _digits(code):
     """外汇保留 4 位小数（6.7183），其余 2 位。"""
-    return 4 if code.startswith("fx_") else 2
+    return 4 if (code or "").startswith("fx_") else 2
+
+
+# ====== 行情抓取（腾讯 + 东财，尽力合并）======
+
+def _fetch_tencent():
+    """腾讯 qt.gtimg.cn → {sym: {close, pct}}。仅美股/港股可靠。"""
+    syms = [d[1] for d in QUOTE_DEFS if d[0] == "tx"]
+    url = TX_QUOTE + ",".join("s_" + s for s in syms)
+    raw = _http_get(url, TX_REFERER, encoding="gbk")
+    out = {}
+    if not raw:
+        return out
+    for line in raw.split(";"):
+        line = line.strip()
+        if "=" not in line:
+            continue
+        key, val = line.split("=", 1)
+        val = val.strip().strip('"')
+        if not val or "~" not in val:
+            continue
+        sym = key.replace("v_s_", "").strip()
+        p = val.split("~")
+        try:
+            close = float(p[3])
+            pct = float(p[5])
+        except (ValueError, IndexError):
+            continue
+        out[sym] = {"close": close, "pct": pct, "time": None}
+    return out
+
+
+def _fetch_eastmoney():
+    """东财 push2 ulist.np → {f12: {close, pct}}。补全 标普/亚太/欧洲/商品/外汇。
+    该域在服务器 IP 间歇性限流，故重试一次；失败返回空（这些分组降级）。"""
+    secids = [d[1] for d in QUOTE_DEFS if d[0] == "em"]
+    url = EM_QUOTE + ",".join(secids)
+    out = {}
+    for attempt in range(2):
+        try:
+            raw = _http_get(url, EM_REFERER)
+            if not raw:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                break
+            j = json.loads(raw)
+            diff = (j.get("data") or {}).get("diff") or []
+            for d in diff:
+                f12 = d.get("f12")
+                try:
+                    close = float(d.get("f2"))
+                    pct = float(d.get("f3"))
+                except (TypeError, ValueError):
+                    continue
+                out[f12] = {"close": close, "pct": pct, "time": None}
+            break
+        except Exception:
+            if attempt == 0:
+                time.sleep(1)
+                continue
+            break
+    return out
 
 
 def fetch_global_quotes(force=False):
@@ -194,30 +187,21 @@ def fetch_global_quotes(force=False):
     if not force and _CACHE["quotes"] and now - _CACHE["quotes_ts"] < QUOTE_TTL:
         return _CACHE["quotes"]
 
-    url = SINA_QUOTE + ",".join(c for c, _, _ in QUOTE_DEFS)
-    raw = _http_get(url, SINA_REFERER, encoding="gbk")
-
+    tdata = _fetch_tencent()
+    edata = _fetch_eastmoney()
     out = []
-    if raw:
-        kvs = {}
-        for line in raw.strip().split("\n"):
-            if "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            kvs[k.replace("var hq_str_", "").strip()] = v.strip().strip(";").strip('"')
-        for code, name, group in QUOTE_DEFS:
-            d = _parse_one(code, kvs.get(code, ""))
-            if not d or d.get("close") is None:
-                continue
-            pct = d.get("pct")
-            if pct is None:
-                pct = _pct_of(d.get("close"), d.get("chg"), d.get("prev_close"))
-            nd = _digits(code)
-            out.append({
-                "code": code, "name": name, "group": group,
-                "close": _round(d["close"], nd), "chg": _round(d.get("chg"), nd),
-                "pct": _round(pct, 2), "time": d.get("time"),
-            })
+    for src, fetch_code, emit_code, name, group in QUOTE_DEFS:
+        d = tdata.get(fetch_code) if src == "tx" else edata.get(fetch_code)
+        if not d or d.get("close") is None:
+            continue
+        nd = _digits(emit_code)
+        out.append({
+            "code": emit_code, "name": name, "group": group,
+            "close": _round(d["close"], nd),
+            "chg": _round(d.get("chg"), nd),
+            "pct": _round(d.get("pct"), 2),
+            "time": d.get("time"),
+        })
 
     res = {"updated_at": _now_cst(), "quotes": out}
     # 源不可用且无缓存时，不写入空结果，避免短暂失败把好数据冲掉

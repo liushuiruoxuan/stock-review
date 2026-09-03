@@ -119,6 +119,7 @@ const menus = [
   { path: '/limit-up', title: '涨停排行', icon: 'Top' },
   { path: '/hot-billboard', title: '热点重合榜', icon: 'TrendCharts' },
   { path: '/game', title: '资金博弈', icon: 'Aim' },
+  { path: '/yao', title: '妖股洞察', icon: 'MagicStick' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
   { path: '/rapid-rise', title: '极速拉升', icon: 'Top' },
   { path: '/institution-youzi', title: '机构 / 游资', icon: 'User' },

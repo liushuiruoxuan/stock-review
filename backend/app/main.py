@@ -23,7 +23,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
-from app.routers import bigscreen, game, globfin, legacy, market, quant  # noqa: E402
+from app.routers import bigscreen, game, globfin, legacy, market, quant, yao  # noqa: E402
 
 DIST_DIR = os.path.normpath(os.path.join(BACKEND_DIR, "..", "frontend", "dist"))
 
@@ -42,6 +42,7 @@ app.include_router(bigscreen.router)
 app.include_router(globfin.router)
 app.include_router(game.router)
 app.include_router(quant.router)
+app.include_router(yao.router)
 
 
 @app.get("/api/{rest:path}")

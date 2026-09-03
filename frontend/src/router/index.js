@@ -16,6 +16,7 @@ import StockGame from '../views/StockGame.vue'
 import QuantBacktest from '../views/QuantBacktest.vue'
 import QuantScreener from '../views/QuantScreener.vue'
 import BigScreen from '../views/BigScreen.vue'
+import YaoInsight from '../views/YaoInsight.vue'
 
 const routes = [
   // 首页 = 资金大屏；原总览迁到 /dashboard
@@ -34,6 +35,7 @@ const routes = [
   { path: '/hot-billboard', name: 'hot-billboard', component: HotBillboard, meta: { title: '热点重合榜', icon: 'TrendCharts', section: 'hot_billboard' } },
   { path: '/game', name: 'game', component: Game, meta: { title: '资金博弈', icon: 'Aim' } },
   { path: '/game/stock/:code', name: 'game-stock', component: StockGame, meta: { title: '个股博弈' } },
+  { path: '/yao', name: 'yao', component: YaoInsight, meta: { title: '妖股洞察', icon: 'MagicStick' } },
   { path: '/quant', name: 'quant', component: QuantBacktest, meta: { title: '量化回测', icon: 'DataAnalysis' } },
   { path: '/quant/screener', name: 'quant-screener', component: QuantScreener, meta: { title: '条件选股', icon: 'Search' } }
 ]

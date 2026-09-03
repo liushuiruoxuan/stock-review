@@ -38,7 +38,9 @@ function render() {
   const s = sig(props.option)
   if (s === lastSig) return
   lastSig = s
-  chart.setOption(props.option, true)
+  // merge 模式（notMerge=false）：数据变化就地更新，不清空画布。
+  // 之前用 notMerge=true 每次轮询都整幅擦除重绘，指数迷你线会「闪一下」。
+  chart.setOption(props.option, { notMerge: false, lazyUpdate: true })
 }
 
 function resize() {

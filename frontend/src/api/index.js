@@ -62,7 +62,11 @@ export const api = {
   quantScreener: (conds) => fetch('/api/quant/screener', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(conds)
-  }).then((r) => r.json())
+  }).then((r) => r.json()),
+
+  // ===== 妖股洞察 =====
+  yaoList: (params = {}) => getJSON('/api/yao/list?' + qs(params)),
+  yaoProfile: (code, days = 60) => getJSON(`/api/yao/profile/${code}?days=${days}`)
 }
 
 // 全局 UI 状态：数据源(live/demo)、交易日、历史回看日期等
