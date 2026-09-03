@@ -163,9 +163,47 @@ def fetch_index_bars(code, beg="2016-01-01", end="2050-01-01"):
 
 
 # ------------------------- 标的列表 -------------------------
-def fetch_instrument_list():
-    """全市场 A 股标的列表（东财 clist 翻页）。返回 [{code, name, market}]。"""
+def _fetch_instruments_sina():
+    """新浪市场中心拉全 A 股列表（node=hs_a）。过滤到 0/3/6 开头的主板/创业板/科创板，
+    排除北交所(4/8/92)、B股(9) 等小众标的。返回 [{code, name, market}]。"""
     out = []
+    page = 1
+    while page <= 3:
+        url = ("https://vip.stock.finance.sina.com.cn/quotes_service/api/json_v2.php/"
+               "Market_Center.getHQNodeData?page=%d&num=5000&sort=symbol&asc=1"
+               "&node=hs_a&symbol=&_s_r_a=auto" % page)
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": em.UA, "Referer": "https://finance.sina.com.cn/"})
+            with urllib.request.urlopen(req, timeout=20, context=em._ctx) as r:
+                data = json.loads(r.read().decode("utf-8", "ignore"))
+        except Exception:
+            data = None
+        if not data or not isinstance(data, list):
+            break
+        for it in data:
+            code = str(it.get("code") or "")
+            if not code or code[:1] not in ("0", "3", "6"):
+                continue
+            out.append({
+                "code": code,
+                "name": it.get("name") or "",
+                "market": "SH" if code.startswith("6") else "SZ",
+            })
+        if len(data) < 5000:
+            break
+        page += 1
+        time.sleep(0.2)
+    return out
+
+
+def fetch_instrument_list():
+    """全市场 A 股标的列表。主源：新浪（稳定）；备源：东财 clist 翻页。
+    返回 [{code, name, market}]。"""
+    out = _fetch_instruments_sina()
+    if out:
+        return out
+    # 东财备源
     page = 1
     while page < 80:
         p = {
