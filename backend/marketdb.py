@@ -402,13 +402,23 @@ def update_run(run_id, status=None, progress=None, error=None,
         conn.close()
 
 
+def _loads(v):
+    """MySQL JSON 列经 PyMySQL 返回的是 str；统一反序列化为 dict/list。"""
+    if isinstance(v, (dict, list)) or v is None:
+        return v
+    try:
+        return json.loads(v)
+    except (ValueError, TypeError):
+        return v
+
+
 def _run_row(r):
     return {
-        "id": r[0], "strategy": r[1], "params": r[2], "universe": r[3],
+        "id": r[0], "strategy": r[1], "params": _loads(r[2]), "universe": r[3],
         "date_start": str(r[4]) if r[4] else None,
         "date_end": str(r[5]) if r[5] else None,
         "status": r[6], "progress": r[7], "error": r[8],
-        "metrics": r[9], "trades": r[10], "equity": r[11],
+        "metrics": _loads(r[9]), "trades": _loads(r[10]), "equity": _loads(r[11]),
         "created_at": str(r[12]) if r[12] else None,
         "finished_at": str(r[13]) if r[13] else None,
     }
