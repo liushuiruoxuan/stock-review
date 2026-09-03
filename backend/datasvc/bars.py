@@ -433,9 +433,12 @@ def sync_calendar_and_index(beg="2016-01-01"):
     return total
 
 
-def sync_bars_full(beg="2016-01-01", task_id=None):
+def sync_bars_full(task_id=None, beg="2016-01-01"):
     """全量同步全市场日线（断点续传：已有该段数据的标的跳过）。
-    供后台任务/手动触发，全市场约 12~20 分钟。"""
+    供后台任务/手动触发，全市场约 12~20 分钟。
+
+    注意：task_id 必须为首参——tasks.run_task 会以 fn(task_id) 位置传参调用。
+    """
     from datasvc import tasks as tasksvc
     insts = marketdb.list_instruments(limit=100000)
     if not insts:
