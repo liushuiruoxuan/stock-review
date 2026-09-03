@@ -144,13 +144,14 @@ def fetch_kline_tencent(code, beg="2016-01-01", end="2050-01-01", timeout=20):
                 d = str(b[0])[:10]
             except (TypeError, IndexError):
                 continue
+            if page_earliest is None or d < page_earliest:
+                page_earliest = d  # 数组升序，但取 min 保证健壮
             if d in seen:
                 continue
             seen.add(d)
             if d.replace("-", "") < lo:
                 continue
             out.append(b)
-            page_earliest = d
         if len(bars) < TENCENT_PAGE:
             break  # 已到上市首日
         if page_earliest is None or page_earliest.replace("-", "") <= lo:
@@ -178,19 +179,37 @@ def fetch_kline_tencent(code, beg="2016-01-01", end="2050-01-01", timeout=20):
     return rows or None
 
 
+_EM_STATE = {"ts": 0.0, "ok": True}
+
+
+def _probe_em(ttl=120):
+    """探测东财日K是否可达，结果缓存 ttl 秒。
+
+    全量同步逐只调用时，若东财已限流，可避免每只标的都做 3 次退避重试
+    （每只约 12 秒 × 5000+ 只 ≈ 数小时）。"""
+    now = time.time()
+    if now - _EM_STATE["ts"] < ttl:
+        return _EM_STATE["ok"]
+    ok = fetch_kline_em("000001", beg="20260801", end="20500101") is not None
+    _EM_STATE["ts"] = now
+    _EM_STATE["ok"] = ok
+    return ok
+
+
 def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", fallback=("tencent", "sina")):
     """带重试与备源的日线抓取。返回行列表（可能为空）。
 
     fallback: 东财失败后依次尝试的备源。全量同步传 ("tencent",)（腾讯前复权约 10 年），
     避免新浪（仅 ~4 年、不复权、无成交额）污染 10 年数据集被误标为“已覆盖”。
     """
-    for wait in RETRY_BACKOFF:
-        rows = fetch_kline_em(code, beg, end)
-        if rows is not None:
-            time.sleep(REQ_INTERVAL)
-            return rows
-        time.sleep(wait)
-    # 东财彻底失败 → 依次降级
+    if _probe_em():
+        for wait in RETRY_BACKOFF:
+            rows = fetch_kline_em(code, beg, end)
+            if rows is not None:
+                time.sleep(REQ_INTERVAL)
+                return rows
+            time.sleep(wait)
+    # 东财不可达（或彻底失败）→ 依次降级
     for src in fallback:
         if src == "tencent":
             rows = fetch_kline_tencent(code, beg, end)
