@@ -29,7 +29,7 @@
       <el-button :icon="Menu" text class="topbar-menu-btn" @click="drawerVisible = true" />
       <div class="topbar-center">
         <span class="topbar-title">{{ currentTitle }}</span>
-        <el-select v-model="ui.selectedDate" placeholder="最新" size="small" class="topbar-date-select">
+        <el-select v-if="!isYao" v-model="ui.selectedDate" placeholder="最新" size="small" class="topbar-date-select">
           <el-option label="最新" value="" />
           <el-option v-for="d in ui.availableDates" :key="d" :label="d" :value="d" />
         </el-select>
@@ -43,19 +43,21 @@
       <div v-if="!isMobile" class="header">
         <div class="header-left">
           <span class="page-title">{{ currentTitle }}</span>
-          <el-tag v-if="ui.selectedDate" size="small" type="warning" effect="plain">
-            回看 {{ ui.selectedDate }}
-          </el-tag>
-          <el-tag v-else size="small" type="info" effect="plain">
-            交易日 {{ ui.tradeDate }}
-          </el-tag>
+          <template v-if="!isYao">
+            <el-tag v-if="ui.selectedDate" size="small" type="warning" effect="plain">
+              回看 {{ ui.selectedDate }}
+            </el-tag>
+            <el-tag v-else size="small" type="info" effect="plain">
+              交易日 {{ ui.tradeDate }}
+            </el-tag>
+          </template>
         </div>
         <div class="header-right">
           <span class="src-mini">
             数据
             <b :class="srcClass('billboard')">{{ srcText('billboard') }}</b>
           </span>
-          <el-select v-model="ui.selectedDate" placeholder="最新" size="small" class="date-select">
+          <el-select v-if="!isYao" v-model="ui.selectedDate" placeholder="最新" size="small" class="date-select">
             <el-option label="最新" value="" />
             <el-option v-for="d in ui.availableDates" :key="d" :label="d" :value="d" />
           </el-select>
@@ -133,6 +135,8 @@ const activePath = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '总览')
 // 首页 / 与大屏路由 /bigscreen 都全屏渲染（/bigscreen 已 redirect 到 /）
 const isBigscreen = computed(() => route.path === '/' || route.path === '/bigscreen')
+// 妖股洞察自带「截止日期」回看下拉，隐藏顶栏全局日期选择器，避免页面上出现两个日期
+const isYao = computed(() => route.path === '/yao')
 
 function srcText(k) {
   return ui.sources[k] === 'demo' ? '示例' : '实时'
