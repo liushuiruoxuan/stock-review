@@ -34,7 +34,13 @@
             </div>
           </div>
           <div class="bs-card grow">
-            <div class="bs-card-h">{{ rotateLeft ? '游资席位攻击榜' : '机构席位攻击榜' }}<span class="rot-hint">15s 轮播</span></div>
+            <div class="bs-card-h">
+              <span class="bs-card-title">席位攻击榜</span>
+              <div class="seat-tabs">
+                <span class="seat-tab" :class="{ active: leftTab === 'youzi' }" @click="leftTab = 'youzi'">游资</span>
+                <span class="seat-tab" :class="{ active: leftTab === 'inst' }" @click="leftTab = 'inst'">机构</span>
+              </div>
+            </div>
             <div class="seat-list">
               <div v-for="(s, i) in rotateSeats" :key="s.seat_name" class="seat-row">
                 <span class="seat-rank" :class="i < 3 ? 'top' + (i + 1) : ''">{{ i + 1 }}</span>
@@ -138,8 +144,8 @@ const ROTATE_SEC = 15
 const data = ref({})
 const clock = ref('')
 const countdown = ref(REFRESH_SEC)
-const rotateLeft = ref(true)   // 左列：游资/机构轮播
 const rotateRight = ref(true)  // 中列下：龙虎榜/板块轮播
+const leftTab = ref('youzi')   // 左列下：席位攻击榜标签页（游资/机构，固定不轮播）
 const viewport = ref(null)
 const screenStyle = ref({})
 
@@ -247,7 +253,7 @@ function darkBar(cats, vals) {
 
 const rotateSeats = computed(() => {
   if (!data.value.seats) return []
-  return rotateLeft.value ? data.value.seats.youzi_top : data.value.seats.inst_top
+  return leftTab.value === 'youzi' ? data.value.seats.youzi_top : data.value.seats.inst_top
 })
 
 onMounted(() => {
@@ -262,7 +268,6 @@ onMounted(() => {
     clock.value = new Date().toLocaleString('zh-CN', { hour12: false })
   }, 1000)
   rotTimer = setInterval(() => {
-    rotateLeft.value = !rotateLeft.value
     rotateRight.value = !rotateRight.value
   }, ROTATE_SEC * 1000)
 })
@@ -322,7 +327,16 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: 8px;
 }
 .bs-card-h::before { content: ''; width: 4px; height: 16px; border-radius: 2px; background: #f5222d; }
-.rot-hint { margin-left: auto; font-size: 11px; font-weight: 400; color: #5b6f96; }
+
+/* 席位榜标签页 */
+.seat-tabs { margin-left: auto; display: flex; gap: 4px; }
+.seat-tab {
+  font-size: 12px; font-weight: 600; color: #8aa0c8; cursor: pointer;
+  padding: 3px 12px; border-radius: 5px; border: 1px solid transparent;
+  transition: all .2s; line-height: 1.4;
+}
+.seat-tab:hover { color: #dde6f5; background: rgba(42, 65, 102, .5); }
+.seat-tab.active { color: #fff; background: #f5222d; border-color: #f5222d; }
 
 /* 指数 */
 .idx-list { display: flex; gap: 10px; }
