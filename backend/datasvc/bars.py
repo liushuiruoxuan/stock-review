@@ -2,7 +2,7 @@
 日线行情抓取（v2 数据管线核心）。
 
 主源：东方财富 push2his kline（免费无 key，与 eastmoney.py 同源同反爬策略，前复权）
-备源：新浪 CN_MarketDataService.getKLineData（未复权，仅作兜底）
+备源：baostock（全历史+成交额/换手）→ 腾讯 ifzq（前复权）→ 新浪（不复权兜底）
 风控：请求间隔 + 指数退避重试；失败记录日志不中断整体同步。
 """
 import datetime
@@ -179,6 +179,62 @@ def fetch_kline_tencent(code, beg="2016-01-01", end="2050-01-01", timeout=20):
     return rows or None
 
 
+_BS_STATE = {"logged_in": False}
+
+
+def _bs_login():
+    """懒登录 baostock（全局会话，进程内仅需一次）。未安装或登录失败返回 None。"""
+    try:
+        import baostock as bs
+    except Exception:
+        return None
+    if not _BS_STATE["logged_in"]:
+        try:
+            lg = bs.login()
+            _BS_STATE["logged_in"] = (lg.error_code == "0")
+        except Exception:
+            _BS_STATE["logged_in"] = False
+    return bs if _BS_STATE["logged_in"] else None
+
+
+def fetch_kline_baostock(code, beg="2016-01-01", end="2050-01-01", timeout=30):
+    """baostock 前复权日线（主备源）。全历史 + 成交额/换手，一次查询取全量。
+    返回 [{trade_date, open, close, high, low, volume, amount, pct_chg, turnover}, ...]
+    或 None（失败）。volume 已由「股」换算为「手」（÷100，与东财口径一致）。"""
+    bs = _bs_login()
+    if bs is None:
+        return None
+    scode = ("sh." if str(code).startswith(("6", "9")) else "sz.") + str(code)
+    end = min(end, datetime.date.today().isoformat())
+    try:
+        rs = bs.query_history_k_data_plus(
+            scode, "date,open,high,low,close,volume,amount,turn,pctChg",
+            start_date=beg, end_date=end, frequency="d", adjustflag="2")
+        if rs is None or rs.error_code != "0":
+            return None
+        raw = []
+        while rs.next():
+            raw.append(rs.get_row_data())
+    except Exception:
+        _BS_STATE["logged_in"] = False  # 会话可能失效，下次重连
+        return None
+    out = []
+    for r in raw:
+        try:
+            out.append({
+                "trade_date": str(r[0])[:10],
+                "open": float(r[1]), "high": float(r[2]),
+                "low": float(r[3]), "close": float(r[4]),
+                "volume": int(float(r[5]) / 100),       # 股 → 手
+                "amount": float(r[6]) if r[6] else None,
+                "turnover": float(r[7]) if r[7] else None,
+                "pct_chg": float(r[8]) if r[8] else None,
+            })
+        except (ValueError, IndexError, TypeError):
+            continue
+    return out or None
+
+
 _EM_STATE = {"ts": 0.0, "ok": True}
 
 
@@ -196,11 +252,11 @@ def _probe_em(ttl=120):
     return ok
 
 
-def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", fallback=("tencent", "sina")):
+def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", fallback=("baostock", "tencent", "sina")):
     """带重试与备源的日线抓取。返回行列表（可能为空）。
 
-    fallback: 东财失败后依次尝试的备源。全量同步传 ("tencent",)（腾讯前复权约 10 年），
-    避免新浪（仅 ~4 年、不复权、无成交额）污染 10 年数据集被误标为“已覆盖”。
+    fallback: 东财失败后依次尝试的备源。默认先 baostock（全历史+成交额/换手，
+    且服务器出口 IP 可达），再腾讯（前复权约 10 年，无成交额），最后新浪兜底。
     """
     if _probe_em():
         for wait in RETRY_BACKOFF:
@@ -213,6 +269,8 @@ def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", fallback=("tencen
     for src in fallback:
         if src == "tencent":
             rows = fetch_kline_tencent(code, beg, end)
+        elif src == "baostock":
+            rows = fetch_kline_baostock(code, beg, end)
         elif src == "sina":
             rows = fetch_kline_sina(code)
         else:
@@ -379,18 +437,18 @@ def sync_bars_full(beg="2016-01-01", task_id=None):
     coverage = marketdb.bar_coverage()
     end = datetime.date.today().isoformat()
 
-    # 断路器：先探一根日K确认东财/腾讯可达；均限流时立即中止，
+    # 断路器：先探一根日K确认任一备源可达；均限流时立即中止，
     # 避免对 5000+ 标的空转重试（每只 3 次退避 ≈ 数小时）。
-    probe = fetch_daily_bars("000001", beg="20260801", fallback=("tencent",))
+    probe = fetch_daily_bars("000001", beg="20260801", fallback=("baostock", "tencent"))
     if not probe:
-        print("[datasvc] 日线全量同步中止：东财/腾讯日K均不可达（可能限流），待冷却后自愈重试")
+        print("[datasvc] 日线全量同步中止：东财/腾讯/baostock 日K均不可达（可能限流），待冷却后自愈重试")
         return 0
 
     todo = [c for c in codes if not coverage.get(c) or coverage[c] < end]
     total = len(todo)
     print("[datasvc] 日线全量同步开始：共 %d 只待抓（全市场 %d 只）" % (total, len(codes)))
     for i, code in enumerate(todo):
-        rows = fetch_daily_bars(code, beg=beg, fallback=("tencent",))
+        rows = fetch_daily_bars(code, beg=beg, fallback=("baostock", "tencent"))
         if rows:
             marketdb.upsert_bars(_bar_rows_with_code(code, rows))
         if task_id and (i % 20 == 0 or i == total - 1):
