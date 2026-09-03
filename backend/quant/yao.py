@@ -113,9 +113,15 @@ def _limitup_map(win_dates):
 
 
 def _window_dates(end, days):
-    """窗口交易日列表（优先交易日历；日历为空返回 None 由调用方退化）。"""
+    """截至 end 的最近 days 个交易日（优先交易日历；日历为空返回 None 由调用方退化）。"""
     cal = marketdb.load_calendar(start=_window_start(end, days), end=end)
     return cal[-int(days):] if cal else None
+
+
+def available_dates(n=40):
+    """妖股页「截止日期」下拉可选交易日（倒序，最新在前）。"""
+    cal = marketdb.load_calendar()
+    return (cal or [])[::-1][: int(n)]
 
 
 # ---------------- 评分共用 ----------------
@@ -168,25 +174,33 @@ def _stage_and_risks(bars, gain, bias, seat_e):
 
 # ---------------- 妖股榜 ----------------
 
-def scan(days=60, top=20):
-    """妖股榜。"""
-    key = "%s-%s" % (days, top)
+def scan(days=60, top=20, end=None):
+    """妖股榜。end: 截止交易日 'YYYY-MM-DD'（None=最新行情日）。
+    返回每只股票的实际行情截止日 data_end —— 回填未完成或停牌时可能早于 end。"""
+    end = end or marketdb.latest_bar_date()
+    key = "%s-%s-%s" % (days, top, end)
     c = _CACHE["list"].get(key)
     if c and time.time() - c["ts"] < _LIST_TTL:
         return c["data"]
 
-    end = marketdb.latest_bar_date()
     if not end:
         return {"bar_date": None, "count": 0, "rows": [],
                 "hint": "行情库为空，请先同步日线数据"}
     start = _window_start(end, days)
-    rows_raw = marketdb.load_bars(start=start, limit=600000)
+    rows_raw = marketdb.load_bars(start=start, end=end, limit=600000)
     if not rows_raw:
-        return {"bar_date": end, "count": 0, "rows": []}
+        return {"bar_date": end, "count": 0, "rows": [],
+                "hint": "截止 %s 无行情数据" % end}
 
-    dates = sorted({r["trade_date"] for r in rows_raw})
-    win = set(dates[-int(days):])
-    win_start = dates[-int(days)] if len(dates) >= int(days) else dates[0]
+    # 窗口：截至 end 的最近 days 个交易日（优先交易日历，退化由 bars 推导）
+    win_dates = _window_dates(end, days)
+    if win_dates:
+        win = set(win_dates)
+        win_start = win_dates[0]
+    else:
+        dates = sorted({r["trade_date"] for r in rows_raw})
+        win = set(dates[-int(days):])
+        win_start = dates[-int(days)] if len(dates) >= int(days) else dates[0]
     by_code = {}
     for r in rows_raw:
         if r["trade_date"] in win:
@@ -259,6 +273,7 @@ def scan(days=60, top=20):
             "pct_chg": chgs[-1],
             "amount": amts[-1],
             "bar_date": bars[-1]["trade_date"],
+            "data_end": bars[-1]["trade_date"],
         })
 
     out.sort(key=lambda r: r["score"], reverse=True)
@@ -271,13 +286,14 @@ def scan(days=60, top=20):
 
 # ---------------- 个股画像 ----------------
 
-def profile(code, days=60):
-    """个股画像：走势 + 阶段 + 评分明细 + 席位 + 涨停明细 + 风险信号。"""
-    end = marketdb.latest_bar_date()
+def profile(code, days=60, end=None):
+    """个股画像：走势 + 阶段 + 评分明细 + 席位 + 涨停明细 + 风险信号。
+    end: 截止交易日（None=最新行情日）。"""
+    end = end or marketdb.latest_bar_date()
     if not end:
         return {"code": code, "hint": "行情库为空"}
     start = _window_start(end, days)
-    rows = marketdb.load_bars(codes=[code], start=start, limit=500) or []
+    rows = marketdb.load_bars(codes=[code], start=start, end=end, limit=500) or []
     rows.sort(key=lambda r: r["trade_date"])
     if len(rows) < 5:
         return {"code": code, "hint": "窗口内K线不足"}
@@ -364,6 +380,7 @@ def profile(code, days=60):
     return {
         "code": code, "name": name,
         "bar_date": end,
+        "data_end": bars[-1]["trade_date"] if bars else None,
         "stage": stage, "score": round(score, 1),
         "score_detail": {
             "gain": round(min(max(gain, 0) / 2.0, 1) * 40, 1),

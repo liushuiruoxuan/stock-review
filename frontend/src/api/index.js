@@ -66,7 +66,8 @@ export const api = {
 
   // ===== 妖股洞察 =====
   yaoList: (params = {}) => getJSON('/api/yao/list?' + qs(params)),
-  yaoProfile: (code, days = 60) => getJSON(`/api/yao/profile/${code}?days=${days}`)
+  yaoProfile: (code, days = 60, date = '') => getJSON(`/api/yao/profile/${code}?days=${days}${date ? '&date=' + encodeURIComponent(date) : ''}`),
+  yaoDates: (n = 40) => getJSON('/api/yao/dates?n=' + n)
 }
 
 // 全局 UI 状态：数据源(live/demo)、交易日、历史回看日期等

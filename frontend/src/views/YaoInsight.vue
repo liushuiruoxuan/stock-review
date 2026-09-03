@@ -6,10 +6,14 @@
         <div class="card-h">
           妖股洞察
           <span class="sub">
-            近 60 个交易日 · 行情截至 {{ res.bar_date || '--' }} ·
+            近 60 个交易日 · 截止 {{ res.bar_date || '--' }}（窗口 {{ res.win_start || '--' }} 起）·
             妖气指数 = 涨幅40 + 连板25 + 换手15 + 量能10 + 游资10
           </span>
-          <el-button size="small" type="primary" style="margin-left: auto" @click="load">
+          <el-select v-model="cutoff" size="small" style="width: 132px; margin-left: auto" @change="load">
+            <el-option label="最新交易日" value="" />
+            <el-option v-for="d in dates" :key="d" :label="d" :value="d" />
+          </el-select>
+          <el-button size="small" type="primary" style="margin-left: 8px" @click="load">
             重新扫描
           </el-button>
         </div>
@@ -86,6 +90,19 @@
         <el-table-column prop="pct_chg" label="当日" width="76" align="right">
           <template #default="s">
             <span :class="trendClass(s.row.pct_chg)">{{ fmtPct(s.row.pct_chg) }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column prop="data_end" label="行情日" width="96" align="center">
+          <template #default="s">
+            <template v-if="s.row.data_end && s.row.data_end !== s.row.bar_date">
+              <el-tooltip
+                :content="'行情库仅覆盖至 ' + s.row.data_end + '（回填中或缺尾），非所选截止日数据'"
+                placement="top"
+              >
+                <span class="lag">{{ s.row.data_end }}</span>
+              </el-tooltip>
+            </template>
+            <span v-else class="muted">{{ s.row.data_end || '--' }}</span>
           </template>
         </el-table-column>
       </el-table>
@@ -188,20 +205,22 @@ import { fmtYuan, fmtPct, fmtNum, trendClass } from '../utils/format'
 const loading = ref(false)
 const res = ref({})
 const prof = ref({})
+const cutoff = ref('')       // 截止交易日；'' = 最新
+const dates = ref([])        // 可选交易日（倒序）
 
 const UP = '#f5222d', DOWN = '#16a34a'
 
 async function load() {
   loading.value = true
   try {
-    res.value = await api.yaoList({ days: 60, top: 20 })
+    res.value = await api.yaoList({ days: 60, top: 20, date: cutoff.value })
   } finally {
     loading.value = false
   }
 }
 
 async function openProfile(row) {
-  prof.value = await api.yaoProfile(row.code, 60)
+  prof.value = await api.yaoProfile(row.code, 60, cutoff.value)
 }
 
 function stageTag(s) {
@@ -264,7 +283,15 @@ const klineOption = computed(() => {
   }
 })
 
-onMounted(load)
+onMounted(async () => {
+  load()
+  try {
+    const r = await api.yaoDates(40)
+    dates.value = (r && r.dates) || []
+  } catch (e) {
+    dates.value = []
+  }
+})
 </script>
 
 <style scoped>
@@ -279,6 +306,7 @@ onMounted(load)
 .score { font-weight: 800; color: #f5222d; font-size: 15px; }
 .risk-chip { color: #d48806; font-weight: 600; cursor: default; }
 .muted { color: #b0b8c5; }
+.lag { color: #d48806; font-weight: 600; cursor: default; }
 .disclaimer {
   margin-top: 10px; font-size: 12px; color: #a0a8b5;
   border-top: 1px dashed #eef0f4; padding-top: 8px;
