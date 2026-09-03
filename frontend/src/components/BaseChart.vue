@@ -13,11 +13,31 @@ const props = defineProps({
 
 const el = ref(null)
 let chart = null
+let lastSig = ''
+
+/**
+ * option 指纹（忽略函数字段，如 tooltip.formatter）。
+ * 大屏每 30s 轮询会整体替换 data，option 对象引用必变但内容常常一模一样，
+ * 用它跳过「引用变、内容没变」的重绘。
+ */
+function sig(o) {
+  try {
+    return JSON.stringify(o)
+  } catch {
+    return ''
+  }
+}
 
 function render() {
   if (!el.value) return
-  if (chart) chart.dispose()
-  chart = echarts.init(el.value)
+  // 复用实例：不再 dispose + init，否则每次数据刷新画布都会清空重建（表现为闪烁）
+  if (!chart || chart.isDisposed()) {
+    chart = echarts.init(el.value)
+    lastSig = ''
+  }
+  const s = sig(props.option)
+  if (s === lastSig) return
+  lastSig = s
   chart.setOption(props.option, true)
 }
 

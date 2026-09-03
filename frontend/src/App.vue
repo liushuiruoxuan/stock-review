@@ -114,11 +114,11 @@ const drawerVisible = ref(false)
 const { isMobile } = useResponsive()
 
 const menus = [
-  { path: '/', title: '总览', icon: 'DataLine' },
+  { path: '/', title: '资金大屏', icon: 'Monitor' },
+  { path: '/dashboard', title: '数据总览', icon: 'DataLine' },
   { path: '/limit-up', title: '涨停排行', icon: 'Top' },
   { path: '/hot-billboard', title: '热点重合榜', icon: 'TrendCharts' },
   { path: '/game', title: '资金博弈', icon: 'Aim' },
-  { path: '/bigscreen', title: '资金大屏', icon: 'Monitor' },
   { path: '/billboard', title: '龙虎榜', icon: 'Trophy' },
   { path: '/rapid-rise', title: '极速拉升', icon: 'Top' },
   { path: '/institution-youzi', title: '机构 / 游资', icon: 'User' },
@@ -130,7 +130,8 @@ const menus = [
 
 const activePath = computed(() => route.path)
 const currentTitle = computed(() => route.meta?.title || '总览')
-const isBigscreen = computed(() => route.path === '/bigscreen')
+// 首页 / 与大屏路由 /bigscreen 都全屏渲染（/bigscreen 已 redirect 到 /）
+const isBigscreen = computed(() => route.path === '/' || route.path === '/bigscreen')
 
 function srcText(k) {
   return ui.sources[k] === 'demo' ? '示例' : '实时'

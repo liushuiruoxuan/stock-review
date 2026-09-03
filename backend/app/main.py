@@ -23,7 +23,7 @@ from fastapi import FastAPI  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import FileResponse, JSONResponse  # noqa: E402
 
-from app.routers import bigscreen, game, legacy, market, quant  # noqa: E402
+from app.routers import bigscreen, game, globfin, legacy, market, quant  # noqa: E402
 
 DIST_DIR = os.path.normpath(os.path.join(BACKEND_DIR, "..", "frontend", "dist"))
 
@@ -39,6 +39,7 @@ app.add_middleware(
 app.include_router(legacy.router)
 app.include_router(market.router)
 app.include_router(bigscreen.router)
+app.include_router(globfin.router)
 app.include_router(game.router)
 app.include_router(quant.router)
 

@@ -18,7 +18,10 @@ import QuantScreener from '../views/QuantScreener.vue'
 import BigScreen from '../views/BigScreen.vue'
 
 const routes = [
-  { path: '/', name: 'dashboard', component: Dashboard, meta: { title: '总览', icon: 'DataLine' } },
+  // 首页 = 资金大屏；原总览迁到 /dashboard
+  { path: '/', name: 'home', component: BigScreen, meta: { title: '资金大屏', icon: 'Monitor' } },
+  { path: '/bigscreen', redirect: '/' },
+  { path: '/dashboard', name: 'dashboard', component: Dashboard, meta: { title: '总览', icon: 'DataLine' } },
   { path: '/billboard', name: 'billboard', component: Billboard, meta: { title: '龙虎榜', icon: 'Trophy', section: 'billboard' } },
   { path: '/capital-flow', name: 'capital-flow', component: CapitalFlow, meta: { title: '资金流向', icon: 'Money', section: 'stocks_flow' } },
   { path: '/sectors', name: 'sectors', component: Sectors, meta: { title: '热点 / 流出板块', icon: 'PieChart', section: 'sectors_hot' } },
@@ -32,8 +35,7 @@ const routes = [
   { path: '/game', name: 'game', component: Game, meta: { title: '资金博弈', icon: 'Aim' } },
   { path: '/game/stock/:code', name: 'game-stock', component: StockGame, meta: { title: '个股博弈' } },
   { path: '/quant', name: 'quant', component: QuantBacktest, meta: { title: '量化回测', icon: 'DataAnalysis' } },
-  { path: '/quant/screener', name: 'quant-screener', component: QuantScreener, meta: { title: '条件选股', icon: 'Search' } },
-  { path: '/bigscreen', name: 'bigscreen', component: BigScreen, meta: { title: '资金大屏', icon: 'Monitor' } }
+  { path: '/quant/screener', name: 'quant-screener', component: QuantScreener, meta: { title: '条件选股', icon: 'Search' } }
 ]
 
 const router = createRouter({

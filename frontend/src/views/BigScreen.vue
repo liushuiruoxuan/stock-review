@@ -17,6 +17,25 @@
         </div>
       </div>
 
+      <!-- 全球行情条 -->
+      <div class="bs-global">
+        <template v-if="globalGroups.length">
+          <div v-for="(g, gi) in globalGroups" :key="g.name" class="gq-group">
+            <span v-if="gi" class="gq-sep"></span>
+            <span class="gq-label">{{ g.name }}</span>
+            <div v-for="q in g.items" :key="q.code" class="gq-item">
+              <span class="gq-name">{{ q.name }}</span>
+              <span class="gq-val" :class="trendClass(q.pct)">
+                <b>{{ fmtNum(q.close, qDigits(q)) }}</b>
+                <i>{{ fmtPct(q.pct) }}</i>
+              </span>
+            </div>
+          </div>
+          <span class="gq-updated">{{ globalUpdated }}</span>
+        </template>
+        <div v-else class="gq-empty">全球行情暂不可用</div>
+      </div>
+
       <!-- 主体三栏 -->
       <div class="bs-body">
         <!-- 左列 -->
@@ -84,6 +103,19 @@
                 <span class="hb-pct" :class="trendClass(r.change_pct)">{{ fmtPct(r.change_pct) }}</span>
               </div>
               <div v-if="!(data.hot_billboard || []).length" class="idx-empty">暂无数据</div>
+            </div>
+          </div>
+          <div class="bs-card grow">
+            <div class="bs-card-h">
+              <span class="bs-card-title">财经要闻</span>
+              <span class="news-src">{{ globalNews[0]?.source || '' }}</span>
+            </div>
+            <div class="news-list">
+              <div v-for="(n, i) in globalNews" :key="i" class="news-row">
+                <span class="news-time">{{ n.time }}</span>
+                <span class="news-text" :title="n.text">{{ n.text }}</span>
+              </div>
+              <div v-if="!globalNews.length" class="idx-empty">暂无要闻</div>
             </div>
           </div>
           <div class="bs-card">
@@ -176,7 +208,7 @@ async function load(manual) {
     console.error(e)
   }
 }
-function goBack() { router.push('/') }
+function goBack() { router.push('/dashboard') }
 
 const tickerLoop = computed(() => {
   const t = data.value.ticker || []
@@ -193,6 +225,8 @@ function sparkOption(ix) {
   const pts = (ix.spark || []).map(p => p.close)
   const up = (ix.pct_chg || 0) >= 0
   return {
+    // 关闭动画：轮询重绘时不再播放入场动画，指数迷你图不会「闪一下」
+    animation: false,
     grid: { left: 0, right: 0, top: 2, bottom: 2 },
     xAxis: { type: 'category', show: false, data: pts.map((_, i) => i) },
     yAxis: { type: 'value', show: false },
@@ -250,6 +284,24 @@ function darkBar(cats, vals) {
     }]
   }
 }
+
+// ===== 全球财经 =====
+const globalQuotes = computed(() => data.value.global?.quotes?.quotes || [])
+const globalNews = computed(() => data.value.global?.news || [])
+const globalUpdated = computed(() => {
+  const t = data.value.global?.quotes?.updated_at
+  return t ? t.slice(11) : ''
+})
+// 按分组（美股/港股/亚太/欧洲/商品/外汇）归拢，保持后端返回顺序
+const globalGroups = computed(() => {
+  const m = new Map()
+  for (const q of globalQuotes.value) {
+    if (!m.has(q.group)) m.set(q.group, [])
+    m.get(q.group).push(q)
+  }
+  return Array.from(m, ([name, items]) => ({ name, items }))
+})
+const qDigits = (q) => (q.code.startsWith('fx_') ? 4 : 2)
 
 const rotateSeats = computed(() => {
   if (!data.value.seats) return []
@@ -313,7 +365,7 @@ onBeforeUnmount(() => {
 .bs-btn:hover { background: #2a4166; }
 
 /* 主体 */
-.bs-body { display: flex; gap: 14px; padding: 14px 28px 0; height: 920px; }
+.bs-body { display: flex; gap: 14px; padding: 14px 28px 0; height: 838px; }
 .bs-col { flex: 1; display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .bs-col.mid { flex: 1.25; }
 .bs-card {
@@ -327,6 +379,26 @@ onBeforeUnmount(() => {
   display: flex; align-items: center; gap: 8px;
 }
 .bs-card-h::before { content: ''; width: 4px; height: 16px; border-radius: 2px; background: #f5222d; }
+
+/* 全球行情条 */
+.bs-global {
+  height: 56px; margin: 10px 28px 0; padding: 0 14px;
+  background: rgba(16, 28, 52, .82); border: 1px solid #1c2b4a; border-radius: 10px;
+  display: flex; align-items: center; gap: 16px; overflow: hidden;
+}
+.gq-group { display: flex; align-items: center; gap: 15px; flex-shrink: 0; }
+.gq-sep { width: 1px; height: 26px; background: #2a4166; flex-shrink: 0; }
+.gq-label {
+  font-size: 12px; color: #8aa0c8; background: rgba(42, 65, 102, .45);
+  border-radius: 4px; padding: 2px 7px; flex-shrink: 0;
+}
+.gq-item { display: flex; flex-direction: column; gap: 1px; flex-shrink: 0; }
+.gq-name { font-size: 11.5px; color: #8aa0c8; white-space: nowrap; }
+.gq-val { display: flex; align-items: baseline; gap: 6px; }
+.gq-val b { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.gq-val i { font-size: 12px; font-style: normal; font-weight: 600; }
+.gq-updated { margin-left: auto; font-size: 12px; color: #5b6f96; flex-shrink: 0; }
+.gq-empty { color: #5b6f96; font-size: 13px; }
 
 /* 席位榜标签页 */
 .seat-tabs { margin-left: auto; display: flex; gap: 4px; }
@@ -379,6 +451,16 @@ onBeforeUnmount(() => {
 .hb-name { width: 90px; font-size: 14px; font-weight: 700; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hb-net { flex: 1; text-align: right; font-size: 14px; font-weight: 700; }
 .hb-pct { width: 76px; text-align: right; font-size: 14px; }
+
+/* 财经要闻 */
+.news-src { margin-left: auto; font-size: 11px; color: #5b6f96; font-weight: 400; }
+.news-list { overflow: hidden; display: flex; flex-direction: column; }
+.news-row { display: flex; gap: 8px; padding: 5px 2px; border-bottom: 1px dashed #1c2b4a; }
+.news-time { color: #5b6f96; font-size: 12px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.news-text {
+  font-size: 12.5px; line-height: 1.45; color: #b9c8e2;
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
 
 /* 情绪 */
 .mood-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }

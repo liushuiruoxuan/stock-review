@@ -7,6 +7,7 @@ import db
 import marketdb
 import monitor
 import server as legacy_server
+from datasvc import globfin
 from .legacy import _monitor_ctx, _seats_ctx, _td_or_state
 
 router = APIRouter()
@@ -109,5 +110,12 @@ def bigscreen_overview(date: str = None):
     except Exception:
         pass
     out["ticker"] = ticker[:18]
+
+    # 全球财经：行情（美股/港股/亚太/欧洲 + 商品 + 外汇）+ 财经要闻
+    try:
+        out["global"] = globfin.snapshot(limit=12)
+    except Exception as e:
+        print("[bigscreen] 全球财经抓取异常：", e)
+        out["global"] = {"quotes": {"updated_at": None, "quotes": []}, "news": []}
 
     return out
