@@ -61,9 +61,10 @@ def run_task(kind, fn, note=""):
             _update(tid, status="failed", error=str(e)[:500],
                     finished_at=time.strftime("%Y-%m-%d %H:%M:%S"))
 
-    with _LOCK:
-        t = _new_task(kind, note)
-        task_id_holder["id"] = t["id"]
+    # 注意：_new_task 内部已持有 _LOCK（threading.Lock 非重入），
+    # 此处不能再包一层 with _LOCK，否则会与 _new_task 自锁死锁。
+    t = _new_task(kind, note)
+    task_id_holder["id"] = t["id"]
     th = threading.Thread(target=wrapper, daemon=True)
     th.start()
     return t["id"]
