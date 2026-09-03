@@ -313,10 +313,11 @@ def bar_coverage():
 
 
 def liquid_universe(top_n=500, days=60, end=None):
-    """按近 N 日平均成交额取流动性前 N 的标的（回测默认股票池）。"""
+    """按近 N 日平均成交额取流动性前 N 的标的（回测默认股票池）。
+    成交额缺失时用 volume*close 近似（腾讯备源无 amount 字段）。"""
     sql = (
-        "SELECT code, AVG(amount) AS avg_amt FROM ("
-        "  SELECT code, amount FROM %s "
+        "SELECT code, AVG(COALESCE(amount, volume*close)) AS avg_amt FROM ("
+        "  SELECT code, amount, volume, close FROM %s "
         "  WHERE trade_date > DATE_SUB(%s, INTERVAL %s DAY)"
         ") t GROUP BY code ORDER BY avg_amt DESC LIMIT %%s"
         % (T_BARS, "%s", "%s")

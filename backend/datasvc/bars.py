@@ -21,6 +21,7 @@ SINA_KLINE = ("https://quotes.sina.cn/cn/api/jsonp_v2.php/"
 
 REQ_INTERVAL = 0.12     # 主源请求间隔（秒），全市场 5900 只 ≈ 12 分钟
 RETRY_BACKOFF = (1, 3, 8)
+TENCENT_PAGE = 800      # 腾讯 ifzq 单次约 800 根上限，按日期倒推分页取全量
 
 
 def secid(code):
@@ -113,11 +114,75 @@ def fetch_kline_sina(code, datalen=1023, timeout=15):
     return rows
 
 
-def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", em_only=False):
+def fetch_kline_tencent(code, beg="2016-01-01", end="2050-01-01", timeout=20):
+    """腾讯 ifzq 前复权日线（备源）。无成交额/换手，按日期倒推分页取全量历史。
+    返回 [{trade_date, open, close, high, low, volume, amount, pct_chg, turnover}, ...]
+    或 None（网络失败）。"""
+    scode = ("sh" if str(code).startswith(("6", "9")) else "sz") + str(code)
+    end = min(end, datetime.date.today().isoformat())
+    lo = beg.replace("-", "")
+    seen = set()
+    out = []
+    cur_end = end
+    for _ in range(12):  # 最多 12 页 ≈ 24 年，足够覆盖全 A
+        url = ("https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?param=%s,day,,%s,%d,qfq"
+               % (scode, cur_end, TENCENT_PAGE))
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": em.UA, "Referer": "https://gu.qq.com/"})
+            with urllib.request.urlopen(req, timeout=timeout, context=em._ctx) as r:
+                j = json.loads(r.read().decode("utf-8", "ignore"))
+            data = (j.get("data") or {}).get(scode) or {}
+            bars = data.get("qfqday") or data.get("day") or []
+        except Exception:
+            bars = None
+        if not bars:
+            break
+        page_earliest = None
+        for b in bars:
+            try:
+                d = str(b[0])[:10]
+            except (TypeError, IndexError):
+                continue
+            if d in seen:
+                continue
+            seen.add(d)
+            if d.replace("-", "") < lo:
+                continue
+            out.append(b)
+            page_earliest = d
+        if len(bars) < TENCENT_PAGE:
+            break  # 已到上市首日
+        if page_earliest is None or page_earliest.replace("-", "") <= lo:
+            break
+        if page_earliest >= cur_end:
+            break
+        cur_end = page_earliest
+        time.sleep(REQ_INTERVAL)
+
+    rows = []
+    prev_close = None
+    for b in sorted(out, key=lambda x: x[0]):
+        try:
+            o = float(b[1]); c = float(b[2]); h = float(b[3])
+            l = float(b[4]); v = int(float(b[5]))
+        except (ValueError, IndexError, TypeError):
+            continue
+        pct = round((c / prev_close - 1) * 100, 4) if prev_close else None
+        prev_close = c
+        rows.append({
+            "trade_date": str(b[0])[:10],
+            "open": o, "close": c, "high": h, "low": l,
+            "volume": v, "amount": None, "pct_chg": pct, "turnover": None,
+        })
+    return rows or None
+
+
+def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", fallback=("tencent", "sina")):
     """带重试与备源的日线抓取。返回行列表（可能为空）。
 
-    em_only=True 时东财失败直接返回空（不降级新浪）——用于全量同步，
-    避免新浪（仅 ~4 年且无成交额）污染 10 年数据集被误标为“已覆盖”。
+    fallback: 东财失败后依次尝试的备源。全量同步传 ("tencent",)（腾讯前复权约 10 年），
+    避免新浪（仅 ~4 年、不复权、无成交额）污染 10 年数据集被误标为“已覆盖”。
     """
     for wait in RETRY_BACKOFF:
         rows = fetch_kline_em(code, beg, end)
@@ -125,15 +190,20 @@ def fetch_daily_bars(code, beg="2016-01-01", end="2050-01-01", em_only=False):
             time.sleep(REQ_INTERVAL)
             return rows
         time.sleep(wait)
-    if em_only:
-        return []
-    # 东财彻底失败 → 新浪兜底（仅增量等非全量场景）
-    rows = fetch_kline_sina(code)
-    if rows:
-        lo = beg.replace("-", "")
-        rows = [r for r in rows if r["trade_date"].replace("-", "") >= lo]
-        time.sleep(REQ_INTERVAL)
-    return rows or []
+    # 东财彻底失败 → 依次降级
+    for src in fallback:
+        if src == "tencent":
+            rows = fetch_kline_tencent(code, beg, end)
+        elif src == "sina":
+            rows = fetch_kline_sina(code)
+        else:
+            rows = None
+        if rows:
+            lo = beg.replace("-", "")
+            rows = [r for r in rows if r["trade_date"].replace("-", "") >= lo]
+            time.sleep(REQ_INTERVAL)
+            return rows
+    return []
 
 
 def fetch_index_bars(code, beg="2016-01-01", end="2050-01-01"):
@@ -290,18 +360,18 @@ def sync_bars_full(beg="2016-01-01", task_id=None):
     coverage = marketdb.bar_coverage()
     end = datetime.date.today().isoformat()
 
-    # 断路器：先探一根日K确认东财可达；限流时立即中止，
+    # 断路器：先探一根日K确认东财/腾讯可达；均限流时立即中止，
     # 避免对 5000+ 标的空转重试（每只 3 次退避 ≈ 数小时）。
-    probe = fetch_kline_em("000001", beg="20260801", end="20500101")
-    if probe is None:
-        print("[datasvc] 日线全量同步中止：东财日K不可达（可能限流），待冷却后自愈重试")
+    probe = fetch_daily_bars("000001", beg="20260801", fallback=("tencent",))
+    if not probe:
+        print("[datasvc] 日线全量同步中止：东财/腾讯日K均不可达（可能限流），待冷却后自愈重试")
         return 0
 
     todo = [c for c in codes if not coverage.get(c) or coverage[c] < end]
     total = len(todo)
     print("[datasvc] 日线全量同步开始：共 %d 只待抓（全市场 %d 只）" % (total, len(codes)))
     for i, code in enumerate(todo):
-        rows = fetch_daily_bars(code, beg=beg, em_only=True)
+        rows = fetch_daily_bars(code, beg=beg, fallback=("tencent",))
         if rows:
             marketdb.upsert_bars(_bar_rows_with_code(code, rows))
         if task_id and (i % 20 == 0 or i == total - 1):
