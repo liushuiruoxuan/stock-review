@@ -7,6 +7,7 @@
 """
 import datetime
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -433,9 +434,117 @@ def sync_calendar_and_index(beg="2016-01-01"):
     return total
 
 
+# ---------------- 并发同步（多进程） ----------------
+# baostock 是模块级单例 socket，多线程共用会互相覆盖登录态，因此必须多进程。
+# 用 spawn 而非 fork：子进程全新解释器，不继承父进程的 db 连接池 socket 与线程锁，
+# 各自独立 login baostock、独立建 MySQL 连接，可安全并行。
+_WORKER = {"beg": "2016-01-01", "ok": False}
+
+
+def _default_workers():
+    env = os.environ.get("BARS_WORKERS")
+    if env:
+        try:
+            return max(1, min(16, int(env)))
+        except ValueError:
+            pass
+    try:
+        n = len(os.sched_getaffinity(0))
+    except Exception:
+        n = os.cpu_count() or 4
+    return max(1, min(8, n))
+
+
+def _init_worker(beg):
+    """子进程初始化：独立登录 baostock（每进程一条自己的 socket）。"""
+    _WORKER["beg"] = beg
+    try:
+        import baostock as bs  # noqa: F401
+    except Exception:
+        _WORKER["ok"] = False
+        return
+    for _ in range(3):
+        try:
+            lg = bs.login()
+            if lg.error_code == "0":
+                _WORKER["ok"] = True
+                _BS_STATE["logged_in"] = True   # 复用本进程会话
+                return
+        except Exception:
+            time.sleep(1)
+    _WORKER["ok"] = False
+
+
+def _work_one(code):
+    """子进程任务：抓一只并入库。返回 (code, 写入行数, 是否成功)。"""
+    beg = _WORKER["beg"]
+    for attempt in range(3):
+        try:
+            rows = fetch_daily_bars(code, beg=beg, fallback=("baostock", "tencent"))
+        except Exception:
+            rows = None
+        if rows:
+            try:
+                n = marketdb.upsert_bars(_bar_rows_with_code(code, rows))
+            except Exception:
+                n = 0
+            if n:
+                return (code, n, True)
+        # 失败：重登录一次再试（baostock 长连接会超时断开）
+        if attempt < 2:
+            try:
+                _BS_STATE["logged_in"] = False
+                _bs_login()
+            except Exception:
+                pass
+            time.sleep(0.4 * (attempt + 1))
+    return (code, 0, False)
+
+
+def _run_parallel(codes, beg, label="日线", task_id=None, workers=None):
+    """多进程并发抓取 + 入库。返回成功只数。"""
+    import multiprocessing as mp
+
+    total = len(codes)
+    if total == 0:
+        print("[datasvc] %s同步：无待抓标的" % label)
+        return 0
+    workers = workers or _default_workers()
+    workers = max(1, min(workers, total))
+    print("[datasvc] %s同步开始（并行 %d 进程）：共 %d 只" % (label, workers, total))
+
+    tasksvc = None
+    if task_id:
+        from datasvc import tasks as tasksvc  # noqa: F811
+
+    done = ok = fail = 0
+    t0 = time.time()
+    ctx = mp.get_context("spawn")
+    pool = ctx.Pool(processes=workers, initializer=_init_worker, initargs=(beg,))
+    try:
+        for code, n, success in pool.imap_unordered(_work_one, codes, chunksize=2):
+            done += 1
+            if success:
+                ok += 1
+            else:
+                fail += 1
+            if tasksvc and (done % 50 == 0 or done == total):
+                tasksvc.set_progress(
+                    task_id, done, total,
+                    "已抓 %s（成功%d/失败%d）" % (code, ok, fail))
+    finally:
+        pool.close()
+        pool.join()
+
+    dt = time.time() - t0
+    print("[datasvc] %s同步完成：成功 %d / 失败 %d / 共 %d，用时 %.1fs（%.2f 只/秒）"
+          % (label, ok, fail, total, dt, (ok / dt) if dt else 0))
+    return ok
+
+
 def sync_bars_full(task_id=None, beg="2016-01-01"):
     """全量同步全市场日线（断点续传：已有该段数据的标的跳过）。
-    供后台任务/手动触发，全市场约 12~20 分钟。
+    多进程并发抓取，全市场约 3~6 分钟（取决于上游限速）。
 
     注意：task_id 必须为首参——tasks.run_task 会以 fn(task_id) 位置传参调用。
     """
@@ -457,15 +566,8 @@ def sync_bars_full(task_id=None, beg="2016-01-01"):
         return 0
 
     todo = [c for c in codes if not coverage.get(c) or coverage[c] < end]
-    total = len(todo)
-    print("[datasvc] 日线全量同步开始：共 %d 只待抓（全市场 %d 只）" % (total, len(codes)))
-    for i, code in enumerate(todo):
-        rows = fetch_daily_bars(code, beg=beg, fallback=("baostock", "tencent"))
-        if rows:
-            marketdb.upsert_bars(_bar_rows_with_code(code, rows))
-        if task_id and (i % 20 == 0 or i == total - 1):
-            tasksvc.set_progress(task_id, i + 1, total, "已抓 %s" % code)
-    print("[datasvc] 日线全量同步完成")
+    print("[datasvc] 日线全量同步：待抓 %d 只（全市场 %d 只）" % (len(todo), len(codes)))
+    return _run_parallel(todo, beg, label="日线全量", task_id=task_id)
 
 
 def sync_bars_daily():
@@ -482,17 +584,8 @@ def sync_bars_daily():
     coverage = marketdb.bar_coverage()
     beg = (datetime.date.fromisoformat(latest) if latest
            else datetime.date.today() - datetime.timedelta(days=10)).isoformat()
-    n = 0
-    for i, inst in enumerate(insts):
-        code = inst["code"]
-        if coverage.get(code, "") >= beg:
-            continue
-        rows = fetch_daily_bars(code, beg=beg)
-        if rows:
-            marketdb.upsert_bars(_bar_rows_with_code(code, rows))
-            n += 1
-        if i % 500 == 0:
-            print("[datasvc] 日线增量进度 %d/%d" % (i, len(insts)))
+    todo = [i["code"] for i in insts if coverage.get(i["code"], "") < beg]
+    n = _run_parallel(todo, beg, label="日线增量")
     # 同步指数与日历
     sync_calendar_and_index()
     print("[datasvc] 日线增量完成：更新 %d 只" % n)
