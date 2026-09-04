@@ -192,7 +192,13 @@ def _norm_date(d):
 
 
 def _bs_login():
-    """懒登录 baostock（全局会话，进程内仅需一次）。未安装或登录失败返回 None。"""
+    """懒登录 baostock（全局会话，进程内仅需一次）。未安装或登录失败返回 None。
+
+    黑名单熔断：baostock 对高频/并发登录会返回 10001011（黑名单用户）。一旦命中，
+    本进程内直接停用该源，不再反复重试（重试会延长封禁且毫无产出）。
+    """
+    if _BS_STATE.get("banned"):
+        return None
     try:
         import baostock as bs
     except Exception:
@@ -200,7 +206,15 @@ def _bs_login():
     if not _BS_STATE["logged_in"]:
         try:
             lg = bs.login()
-            _BS_STATE["logged_in"] = (lg.error_code == "0")
+            if lg.error_code == "0":
+                _BS_STATE["logged_in"] = True
+            else:
+                _BS_STATE["logged_in"] = False
+                msg = getattr(lg, "error_msg", "") or ""
+                if lg.error_code == "10001011" or "黑名单" in msg:
+                    _BS_STATE["banned"] = True
+                    print("[datasvc] baostock 返回黑名单（%s），已停用该源，"
+                          "待封禁解除后重启服务恢复" % msg)
         except Exception:
             _BS_STATE["logged_in"] = False
     return bs if _BS_STATE["logged_in"] else None
@@ -440,6 +454,9 @@ def sync_calendar_and_index(beg="2016-01-01"):
 # 各自独立 login baostock、独立建 MySQL 连接，可安全并行。
 _WORKER = {"beg": "2016-01-01", "ok": False}
 
+# 断路器阈值：并发同步时连续这么多只失败即判定上游不可用，中止本轮（避免空转）
+FAIL_BREAK = 80
+
 
 def _default_workers():
     env = os.environ.get("BARS_WORKERS")
@@ -452,32 +469,48 @@ def _default_workers():
         n = len(os.sched_getaffinity(0))
     except Exception:
         n = os.cpu_count() or 4
-    return max(1, min(8, n))
+    # 保守上限 4：baostock 对并发登录敏感，8 进程曾触发 IP 黑名单
+    return max(1, min(4, n))
 
 
 def _init_worker(beg):
-    """子进程初始化：独立登录 baostock（每进程一条自己的 socket）。"""
+    """子进程初始化：独立登录 baostock（每进程一条自己的 socket）。
+
+    子进程间错开登录时间，避免同时发起多路 login 触发风控；命中黑名单则直接标记。
+    """
     _WORKER["beg"] = beg
     try:
         import baostock as bs  # noqa: F401
     except Exception:
         _WORKER["ok"] = False
         return
-    for _ in range(3):
+    # 错开：按进程启动顺序递增延迟
+    time.sleep(0.5)
+    for _ in range(2):
         try:
             lg = bs.login()
             if lg.error_code == "0":
                 _WORKER["ok"] = True
                 _BS_STATE["logged_in"] = True   # 复用本进程会话
                 return
+            msg = getattr(lg, "error_msg", "") or ""
+            if lg.error_code == "10001011" or "黑名单" in msg:
+                _BS_STATE["banned"] = True
+                _WORKER["ok"] = False
+                return
         except Exception:
-            time.sleep(1)
+            pass
+        time.sleep(2)
     _WORKER["ok"] = False
 
 
-def _work_one(code):
-    """子进程任务：抓一只并入库。返回 (code, 写入行数, 是否成功)。"""
-    beg = _WORKER["beg"]
+def _work_one(item):
+    """子进程任务：抓一只并入库。返回 (code, 写入行数, 是否成功)。
+
+    item 为 (code, beg)：beg 按该标的已有断点确定——已入库的只抓增量（1~2 天），
+    从未入库的才从 beg 全量拉取。避免每只都重拉十年历史只为补最新一天。
+    """
+    code, beg = item if isinstance(item, (tuple, list)) else (item, _WORKER["beg"])
     for attempt in range(3):
         try:
             rows = fetch_daily_bars(code, beg=beg, fallback=("baostock", "tencent"))
@@ -517,7 +550,8 @@ def _run_parallel(codes, beg, label="日线", task_id=None, workers=None):
     if task_id:
         from datasvc import tasks as tasksvc  # noqa: F811
 
-    done = ok = fail = 0
+    done = ok = fail = con_fail = 0
+    aborted = False
     t0 = time.time()
     ctx = mp.get_context("spawn")
     pool = ctx.Pool(processes=workers, initializer=_init_worker, initargs=(beg,))
@@ -526,14 +560,25 @@ def _run_parallel(codes, beg, label="日线", task_id=None, workers=None):
             done += 1
             if success:
                 ok += 1
+                con_fail = 0
             else:
                 fail += 1
+                con_fail += 1
             if tasksvc and (done % 50 == 0 or done == total):
                 tasksvc.set_progress(
                     task_id, done, total,
                     "已抓 %s（成功%d/失败%d）" % (code, ok, fail))
+            # 断路器：连续大量失败说明上游限流/登录被拒，立即中止，
+            # 避免对全市场空转重试（曾导致「任务 done 但只写入 30%」的假完成）。
+            if con_fail >= FAIL_BREAK:
+                print("[datasvc] %s同步中止：连续 %d 只失败（上游限流或 baostock 登录被拒），"
+                      "已处理 %d/%d，成功 %d" % (label, con_fail, done, total, ok))
+                aborted = True
+                pool.terminate()
+                break
     finally:
-        pool.close()
+        if not aborted:
+            pool.close()
         pool.join()
 
     dt = time.time() - t0
@@ -565,8 +610,12 @@ def sync_bars_full(task_id=None, beg="2016-01-01"):
         print("[datasvc] 日线全量同步中止：东财/腾讯/baostock 日K均不可达（可能限流），待冷却后自愈重试")
         return 0
 
-    todo = [c for c in codes if not coverage.get(c) or coverage[c] < end]
-    print("[datasvc] 日线全量同步：待抓 %d 只（全市场 %d 只）" % (len(todo), len(codes)))
+    # 断点续传：已入库的标的从各自最新日往后增量抓（1~2 天），
+    # 从未入库的才从 beg 全量拉。否则每只都重拉十年历史只为补最新一天。
+    todo = [(c, coverage.get(c) or beg)
+            for c in codes if not coverage.get(c) or coverage[c] < end]
+    print("[datasvc] 日线全量同步：待抓 %d 只（全市场 %d 只，其中 %d 只需全量）"
+          % (len(todo), len(codes), sum(1 for c in codes if not coverage.get(c))))
     return _run_parallel(todo, beg, label="日线全量", task_id=task_id)
 
 
@@ -584,7 +633,8 @@ def sync_bars_daily():
     coverage = marketdb.bar_coverage()
     beg = (datetime.date.fromisoformat(latest) if latest
            else datetime.date.today() - datetime.timedelta(days=10)).isoformat()
-    todo = [i["code"] for i in insts if coverage.get(i["code"], "") < beg]
+    todo = [(i["code"], coverage.get(i["code"]) or beg)
+            for i in insts if coverage.get(i["code"], "") < beg]
     n = _run_parallel(todo, beg, label="日线增量")
     # 同步指数与日历
     sync_calendar_and_index()
